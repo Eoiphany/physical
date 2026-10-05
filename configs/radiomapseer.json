@@ -1,0 +1,74 @@
+{
+  "schema_version": "radiomapseer-physics-prior-v1",
+  "dataset": "RadioMapSeer",
+  "source": {
+    "paper_reference": "Yapar et al., Dataset of Pathloss and ToA Radio Maps With Localization Application, arXiv:2212.11777",
+    "evidence": "local gene_data/feko/REPRODUCTION_NOTES_ZH.md and dataset paper Table I",
+    "evidence_boundary": "2D RadioMapSeer polygons contain footprints only; 25 m is the dataset 2D simulation parameter."
+  },
+  "data": {
+    "format": "polygon_mask_json",
+    "polygon_path_template": "polygon/buildings_complete/{scene_id}.json",
+    "antenna_path_template": "antenna/{scene_id}.json",
+    "ground_truth_template": "gain/IRT4/{scene_id}_{tx_id}.png",
+    "selected_simulation": "IRT4"
+  },
+  "scene": {
+    "map_size_px": [256, 256],
+    "map_size_m": [256.0, 256.0],
+    "resolution_m_per_pixel": 1.0,
+    "coordinate_convention": "polygon and antenna JSON use bottom-origin x,y; image arrays use row=(H-1)-y,col=x",
+    "building_height_m": [25.0, 25.0],
+    "building_height_source": "2D dataset Table I; fixed height applied to polygon footprints",
+    "rx_height_m": 1.5,
+    "tx_height_m": 1.5,
+    "tx_height_semantics": "absolute street-level height",
+    "tx_height_audit_note": "2D dataset Tx/Rx are both configured at 1.5 m; no rooftop audit applies",
+    "cars_in_3d_dataset": false
+  },
+  "wireless": {
+    "frequency_hz": 5900000000.0,
+    "tx_power_dbm": 23.0,
+    "bandwidth_hz": 10000000.0,
+    "noise_psd_dbm_per_hz": -174.0,
+    "noise_figure_db": 0.0,
+    "antenna_type": "isotropic"
+  },
+  "dataset_labels": {
+    "simulation_pathgain_db_range": [-127.0, -47.0],
+    "dataset_pathgain_threshold_db": -127.0,
+    "analytic_pathgain_threshold_db": -147.0,
+    "rss_range_dbm_from_simulation_range": [-104.0, -24.0],
+    "rss_threshold_dbm_from_dataset_threshold": -104.0,
+    "png_gray_mapping": {
+      "method": "linear gray/255 to signed pathgain/pathloss dB",
+      "pathgain_db_range": [-127.0, -47.0],
+      "black_pixel_semantics": "truncated below dataset threshold"
+    },
+    "paper_quantity": "signed_PL_or_pathgain_db = PRx_dB - PTx_dB (negative)",
+    "comparison_quantity": "signed_PL_or_pathgain_db",
+    "physics_prior_quantity": "signed_PL_or_pathgain_db"
+  },
+  "physics_prior": {
+    "speed_of_light_m_per_s": 299792458.0,
+    "path_sampling_step_m": 1.0,
+    "default_diffraction_method": "auto",
+    "supported_diffraction_methods": ["none", "single", "owr-rd", "owr-cd", "deygout", "auto"],
+    "owr_rd_algorithm_name": "OWR-RD (One-Way Recursive Rooftop Diffraction)",
+    "owr_cd_algorithm_name": "OWR-CD (One-Way Recursive Corner Diffraction; canonical UTD wedge)",
+    "max_corner_depth": 32,
+    "auto_selection_rule": "Use OWR-CD when Tx/Rx heights are close and both are below half the maximum building height; otherwise use OWR-RD.",
+    "nu_no_obstacle": "NaN",
+    "d1_d2_definition": "3D Euclidean distances using fixed 25 m building proxy and 1.5 m Tx/Rx"
+  },
+  "visualization": {
+    "fixed_color_limits": {
+      "building_height_m": [0.0, 25.0],
+      "fspl_db": [-110.0, -40.0],
+      "diffraction_loss_db": [-50.0, 0.0],
+      "physics_prior_db": [-160.0, -40.0],
+      "ground_truth_path_loss_db": [-127.0, -40.0]
+    },
+    "note": "Fixed across selected scenes/Tx; no per-image min-max normalization."
+  }
+}

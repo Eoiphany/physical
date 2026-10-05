@@ -1,0 +1,69 @@
+{
+  "schema_version": "radiomap3dseer-physics-prior-v1",
+  "dataset": "RadioMap3DSeer",
+  "source": {
+    "paper_reference": "C. Yapar et al., Dataset of Pathloss and ToA Radio Maps With Localization Application, arXiv:2212.11777v4, 2024-09-16",
+    "evidence": "Table I, Section II, Section IV, Appendix A",
+    "paper_file": "external source; not stored in this repository"
+  },
+  "scene": {
+    "map_size_px": [256, 256],
+    "map_size_m": [256.0, 256.0],
+    "resolution_m_per_pixel": 1.0,
+    "coordinate_convention": "polygon and antenna JSON use bottom-origin x,y; image arrays use row=(H-1)-y,col=x; pixel centers are represented by integer grid coordinates",
+    "building_height_m": [6.6, 19.8],
+    "building_height_source": "polygon/buildings/<scene_id>.json absolute rooftop heights",
+    "rx_height_m": 1.5,
+    "tx_height_semantics": "absolute rooftop height plus offset",
+    "tx_height_offset_above_rooftop_m": 3.0,
+    "cars_in_3d_dataset": false,
+    "building_element_tile_length_m": 10.0
+  },
+  "wireless": {
+    "frequency_hz": 3500000000.0,
+    "tx_power_dbm": 23.0,
+    "bandwidth_hz": 20000000.0,
+    "noise_psd_dbm_per_hz": -174.0,
+    "noise_figure_db": 20.0,
+    "antenna_type": "isotropic"
+  },
+  "dataset_labels": {
+    "simulation_pathgain_db_range": [-162.0, -75.0],
+    "dataset_pathgain_threshold_db": -104.0,
+    "analytic_pathgain_threshold_db": -111.0,
+    "rss_range_dbm_from_simulation_range": [-139.0, -52.0],
+    "rss_threshold_dbm_from_dataset_threshold": -81.0,
+    "png_gray_mapping": {
+      "method": "linear gray/255 to pathgain dB",
+      "pathgain_db_range": [-162.0, -75.0],
+      "status": "repository-established mapping; exact publisher post-processing is not independently recoverable from the PNG files"
+    },
+    "paper_quantity": "signed_PL_or_pathgain_db = PRx_dB - PTx_dB (negative)",
+    "comparison_quantity": "signed_PL_or_pathgain_db",
+    "physics_prior_quantity": "signed_PL_or_pathgain_db; FSPL and diffraction contributions are negative in the final map",
+    "optional_magnitude_quantity": "positive loss magnitudes are saved only as *_loss_magnitude_db arrays"
+  },
+  "physics_prior": {
+    "speed_of_light_m_per_s": 299792458.0,
+    "path_sampling_step_m": 1.0,
+    "default_diffraction_method": "auto",
+    "supported_diffraction_methods": ["none", "single", "owr-rd", "owr-cd", "deygout", "auto"],
+    "owr_rd_algorithm_name": "OWR-RD (One-Way Recursive Rooftop Diffraction)",
+    "owr_cd_algorithm_name": "OWR-CD (One-Way Recursive Corner Diffraction; canonical UTD wedge)",
+    "max_corner_depth": 32,
+    "auto_selection_rule": "Use OWR-CD when Tx/Rx heights are close and both are below half the maximum building height; otherwise use OWR-RD.",
+    "nu_no_obstacle": "NaN",
+    "d1_d2_definition": "3D Euclidean distances from the current interval endpoints A/B to candidate rooftop point E=(x,y,H_i), including vertical offsets; for the root interval A=Tx and B=Rx",
+    "recursive_same_building_guard": "Exclude the already selected 8-connected building component from child intervals so one rasterized roof is not counted as multiple knife edges"
+  },
+  "visualization": {
+    "fixed_color_limits": {
+      "building_height_m": [0.0, 19.8],
+      "fspl_db": [-100.0, -60.0],
+      "diffraction_loss_db": [-50.0, 0.0],
+      "physics_prior_db": [-140.0, -60.0],
+      "ground_truth_path_loss_db": [-162.0, -60.0]
+    },
+    "note": "These limits are fixed across selected scenes/Tx and are not per-image min-max normalization."
+  }
+}

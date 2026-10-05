@@ -1,0 +1,15 @@
+[project]
+name = "radiomap3dseer-physics-prior"
+version = "0.1.0"
+description = "Deterministic FSPL and single knife-edge diffraction prior for RadioMap3DSeer"
+requires-python = ">=3.10"
+dependencies = [
+    "matplotlib>=3.8",
+    "numpy>=1.24",
+    "Pillow>=10",
+    "pytest>=8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+python_files = ["test_*.py"]

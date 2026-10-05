@@ -1,0 +1,75 @@
+{
+  "schema_version": "usc-physics-prior-v1",
+  "dataset": "USC",
+  "source": {
+    "paper_reference": "Local USC Readme.txt and surrogate/configs/usc_scale.json",
+    "evidence": "local map/Tx/pmap/dmap directory contract",
+    "evidence_boundary": "2D image-only package; fixed building and Tx heights are explicit proxies. The local Readme states that pmap targets use Wireless Insite data and fill remaining pixels with bilinear interpolation."
+  },
+  "data": {
+    "format": "image_mask",
+    "building_map_template": "map/{scene_id}.png",
+    "tx_map_template": "Tx/{scene_id}.png",
+    "ground_truth_template": "pmap/{scene_id}.png",
+    "building_mask_threshold": 1,
+    "tx_mask_threshold": 1
+  },
+  "scene": {
+    "map_size_px": [256, 256],
+    "map_size_m": [220.16, 220.16],
+    "resolution_m_per_pixel": 0.86,
+    "coordinate_convention": "PNG arrays use row/col; Tx centroid is converted to bottom-origin x,y",
+    "building_height_m": [10.0, 10.0],
+    "building_height_source": "fixed 2D proxy; no per-building heights supplied",
+    "rx_height_m": 1.5,
+    "tx_height_m": 1.5,
+    "tx_height_semantics": "absolute fixed-height proxy",
+    "tx_height_audit_note": "Tx mask has no z coordinate; configured Tx height is an explicit proxy",
+    "cars_in_3d_dataset": false
+  },
+  "wireless": {
+    "frequency_hz": 2500000000.0,
+    "tx_power_dbm": 0.0,
+    "bandwidth_hz": 20000000.0,
+    "noise_psd_dbm_per_hz": -174.0,
+    "noise_figure_db": 0.0,
+    "antenna_type": "isotropic_vertical"
+  },
+  "dataset_labels": {
+    "simulation_pathgain_db_range": [-254.0, 0.0],
+    "dataset_pathgain_threshold_db": -254.0,
+    "analytic_pathgain_threshold_db": -254.0,
+    "rss_range_dbm_from_simulation_range": [-254.0, 0.0],
+    "rss_threshold_dbm_from_dataset_threshold": -254.0,
+    "png_gray_mapping": {
+      "method": "linear gray/255 to signed target dB",
+      "pathgain_db_range": [-254.0, 0.0],
+      "source": "local surrogate/configs/usc_scale.json target_db_min/target_db_max"
+    },
+    "paper_quantity": "signed target dB from Wireless Insite pmap",
+    "comparison_quantity": "signed target dB",
+    "physics_prior_quantity": "signed_PL_or_pathgain_db"
+  },
+  "physics_prior": {
+    "speed_of_light_m_per_s": 299792458.0,
+    "path_sampling_step_m": 0.86,
+    "default_diffraction_method": "auto",
+    "supported_diffraction_methods": ["none", "single", "owr-rd", "owr-cd", "deygout", "auto"],
+    "owr_rd_algorithm_name": "OWR-RD (One-Way Recursive Rooftop Diffraction)",
+    "owr_cd_algorithm_name": "OWR-CD (One-Way Recursive Corner Diffraction; canonical UTD wedge)",
+    "max_corner_depth": 32,
+    "auto_selection_rule": "Use OWR-CD when Tx/Rx heights are close and both are below half the maximum building height; otherwise use OWR-RD.",
+    "nu_no_obstacle": "NaN",
+    "d1_d2_definition": "3D Euclidean distances using fixed-height proxy and 0.86 m/pixel"
+  },
+  "visualization": {
+    "fixed_color_limits": {
+      "building_height_m": [0.0, 10.0],
+      "fspl_db": [-110.0, -35.0],
+      "diffraction_loss_db": [-50.0, 0.0],
+      "physics_prior_db": [-260.0, -35.0],
+      "ground_truth_path_loss_db": [-254.0, 0.0]
+    },
+    "note": "Fixed across selected samples; no per-image min-max normalization."
+  }
+}
