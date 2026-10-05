@@ -10,9 +10,6 @@ import numpy as np
 
 from radiomap_physics import (
     DiffractionEndpoint,
-    _building_component_labels,
-    _endpoint_from_tx,
-    _first_blocking_component,
     load_json,
     load_scene,
     solve_diffraction,
@@ -45,14 +42,10 @@ def main() -> None:
     resolution_m = float(config["scene"]["resolution_m_per_pixel"])
     wavelength_m = float(config["physics_prior"]["speed_of_light_m_per_s"]) / float(config["wireless"]["frequency_hz"])
     max_depth = int(config["physics_prior"].get("max_corner_depth", 3))
-    labels = _building_component_labels(scene.height_map_m)
-    tx_endpoint = _endpoint_from_tx(scene.height_map_m, tx)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     records = []
     for rx_row, rx_col in _parse_pairs(args.rx_pairs):
-        target = DiffractionEndpoint(float(rx_row), float(rx_col), rx_height_m)
-        first_component, first_progress = _first_blocking_component(labels, tx_endpoint, target, resolution_m, frozenset())
         solution = solve_diffraction(
             scene.height_map_m,
             tx,
@@ -76,6 +69,8 @@ def main() -> None:
             sample_stem,
             str(config.get("dataset", "Dataset")),
         )
+        first_component = solution.first_blocking_component_id
+        first_progress = solution.corner_diagnostics[0].get("blocking_progress") if solution.corner_diagnostics else None
         record = {
             "scene_id": args.scene_id,
             "tx_id": args.tx_id,

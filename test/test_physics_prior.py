@@ -211,6 +211,57 @@ def test_owr_cd_accepts_one_valid_silhouette_corner() -> None:
     assert any(candidate.get("selected") for step in solution.corner_diagnostics for candidate in step["candidates"])
 
 
+def test_owr_cd_case_a_los_has_no_diffraction():
+    """Case A: a direct free-space segment is LOS, not an implicit corner path."""
+
+    height = np.zeros((15, 15), dtype=np.float32)
+    solution = solve_diffraction(
+        height, TxRecord(x_m=1.0, y_m=13.0, z_m=1.5), 1, 13,
+        "owr-cd", 1.5, 1.0, 299792458.0 / 3.5e9,
+        footprint_polygons=[],
+    )
+    assert solution.is_los
+    assert solution.termination == "los"
+    assert solution.events == []
+    assert solution.first_blocking_component_id is None
+
+
+def test_owr_cd_case_c_recurses_only_to_next_building():
+    """Case C: a legal chain contains different blocking buildings only."""
+
+    height = np.zeros((50, 50), dtype=np.float32)
+    height[28:34, 15:22] = 25.0
+    height[28:34, 23:32] = 25.0
+    polygons = [
+        {"coordinates_xy": [[15.0, 28.0], [22.0, 28.0], [22.0, 34.0], [15.0, 34.0]]},
+        {"coordinates_xy": [[23.0, 28.0], [32.0, 28.0], [32.0, 34.0], [23.0, 34.0]]},
+    ]
+    solution = solve_diffraction(
+        height, TxRecord(x_m=2.0, y_m=4.0, z_m=1.5), 18, 40,
+        "owr-cd", 1.5, 1.0, 299792458.0 / 3.5e9,
+        footprint_polygons=polygons,
+    )
+    assert solution.termination == "rx_visible"
+    assert [event.component_id for event in solution.events] == [0, 1]
+    assert len(set(event.component_id for event in solution.events)) == len(solution.events)
+
+
+def test_owr_cd_case_d_rejects_one_silhouette_and_accepts_another():
+    """Case D: candidates on the same blocker are tested independently."""
+
+    height = np.zeros((35, 35), dtype=np.float32)
+    height[17:22, 15:23] = 25.0
+    polygon = {"coordinates_xy": [[15.0, 17.0], [23.0, 17.0], [23.0, 22.0], [15.0, 22.0]]}
+    solution = solve_diffraction(
+        height, TxRecord(x_m=2.0, y_m=9.0, z_m=1.5), 17, 33,
+        "owr-cd", 1.5, 1.0, 299792458.0 / 3.5e9,
+        footprint_polygons=[polygon],
+    )
+    candidates = solution.corner_diagnostics[0]["candidates"]
+    assert any(candidate.get("silhouette_corner") and candidate.get("reject_reason") for candidate in candidates)
+    assert any(candidate.get("selected") for candidate in candidates)
+    assert solution.termination == "rx_visible"
+
 if __name__ == "__main__":
     # 在无pytest的离线环境中仍可直接用本项目约定的uv run命令执行最小测试集。
     tests = [
@@ -226,6 +277,9 @@ if __name__ == "__main__":
         test_recursive_modes_do_not_repeat_one_connected_building,
         test_auto_dispatch_uses_height_relationship,
         test_owr_cd_rejects_same_building_wall_walk,
+        test_owr_cd_case_a_los_has_no_diffraction,
+        test_owr_cd_case_c_recurses_only_to_next_building,
+        test_owr_cd_case_d_rejects_one_silhouette_and_accepts_another,
         test_owr_cd_accepts_one_valid_silhouette_corner,
     ]
     for test in tests:

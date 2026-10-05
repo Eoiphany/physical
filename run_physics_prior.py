@@ -93,6 +93,8 @@ def _save_arrays(output_dir: Path, maps: PhysicsMaps) -> None:
         "edge_count": maps.edge_count,
         "corner_count": maps.corner_count,
         "unresolved_nlos_mask": maps.unresolved_nlos_mask,
+        "cd_validity_mask": maps.cd_validity_mask,
+        "first_blocking_building_id": maps.first_blocking_building_id,
     }
     for name, array in arrays.items():
         np.save(array_dir / f"{name}.npy", array)
@@ -219,6 +221,7 @@ def _serialize_solution(solution) -> dict:
         "edge_count": len(solution.events),
         "corner_count": sum(event.event_type == "corner" for event in solution.events),
         "corner_diagnostics": solution.corner_diagnostics,
+        "first_blocking_building_id": solution.first_blocking_component_id,
         "events": [
             {
                 "depth": event.depth,
@@ -236,6 +239,8 @@ def _serialize_solution(solution) -> dict:
                 "incident_angle_rad": event.incident_angle_rad,
                 "diffraction_angle_rad": event.diffraction_angle_rad,
                 "corner_model": event.corner_model,
+                "incident_direction_rc": event.incident_direction_rc,
+                "outgoing_direction_rc": event.outgoing_direction_rc,
             }
             for event in solution.events
         ],
@@ -380,6 +385,40 @@ def render_corner_recursive_debug(
     plt.close(fig)
 
 
+def render_owr_cd_diagnostics(
+    height_map_m: np.ndarray,
+    maps: PhysicsMaps,
+    tx_x: float,
+    tx_row: float,
+    color_limits: dict[str, list[float]],
+    output_stem: Path,
+    dataset_name: str,
+) -> None:
+    """Render the six geometry/validity maps specific to strict OWR-CD."""
+
+    output_stem.parent.mkdir(parents=True, exist_ok=True)
+    first_blocker = np.ma.masked_where(maps.first_blocking_building_id < 0, maps.first_blocking_building_id)
+    panels = [
+        ("LOS mask (1=LOS)", maps.los_mask.astype(np.float32), (0.0, 1.0), "viridis"),
+        ("CD validity (1=valid)", maps.cd_validity_mask.astype(np.float32), (0.0, 1.0), "viridis"),
+        ("Unresolved NLOS", maps.unresolved_nlos_mask.astype(np.float32), (0.0, 1.0), "magma"),
+        ("Corner count", maps.corner_count, (0.0, max(3.0, float(np.max(maps.corner_count)))), "viridis"),
+        ("OWR-CD diffraction / signed dB", maps.diffraction_loss_db, tuple(color_limits["diffraction_loss_db"]), "viridis"),
+        ("First blocking building ID", first_blocker, (-1.0, max(1.0, float(np.max(maps.first_blocking_building_id)))), "tab20"),
+    ]
+    fig, axes = plt.subplots(2, 3, figsize=(15, 9), constrained_layout=True)
+    for ax, (title, array, limits, cmap) in zip(axes.flat, panels):
+        image = ax.imshow(array, cmap=cmap, aspect="equal", interpolation="nearest", vmin=limits[0], vmax=limits[1])
+        ax.set_title(title, fontsize=11)
+        ax.set_xlabel("x / col")
+        ax.set_ylabel("y / row")
+        ax.plot(tx_x, tx_row, marker="+", color="red", markersize=8, markeredgewidth=1.5)
+        fig.colorbar(image, ax=ax, fraction=0.046, pad=0.04)
+    fig.suptitle(f"{dataset_name} OWR-CD geometry diagnostics", fontsize=15)
+    fig.savefig(output_stem.with_suffix(".png"), dpi=300)
+    fig.savefig(output_stem.with_suffix(".pdf"))
+    plt.close(fig)
+
 def render_mode_comparison(
     height_map_m: np.ndarray,
     ground_truth_path_loss_db: np.ndarray,
@@ -443,6 +482,8 @@ def _mode_metrics(maps: PhysicsMaps, ground_truth_path_loss_db: np.ndarray) -> d
         "prediction_below_ground_truth_min_ratio": float(np.mean(maps.physics_prior_db < ground_truth_min)),
         "corner_count_mean": float(np.mean(maps.corner_count)),
         "corner_count_max": int(np.max(maps.corner_count)),
+        "cd_validity_ratio": float(np.mean(maps.cd_validity_mask)),
+        "cd_validity_nlos_ratio": float(np.mean(maps.cd_validity_mask & nlos)),
         "unresolved_nlos_ratio": float(np.mean(maps.unresolved_nlos_mask)),
     }
 
@@ -695,6 +736,16 @@ def main() -> None:
                     solutions["owr-cd"],
                     scene.polygons,
                     sample_dir / "corner_recursive_debug_owr_cd",
+                    str(config.get("dataset", "Dataset")),
+                )
+            if "owr-cd" in maps_by_mode:
+                render_owr_cd_diagnostics(
+                    scene.height_map_m,
+                    maps_by_mode["owr-cd"],
+                    tx.x_m,
+                    tx_row,
+                    color_limits,
+                    sample_dir / "owr_cd_diagnostics",
                     str(config.get("dataset", "Dataset")),
                 )
             selected_method = auto_method if diffraction_method == "auto" else maps_by_mode[modes[0]].mode

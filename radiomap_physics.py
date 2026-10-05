@@ -140,6 +140,8 @@ class PhysicsMaps:
     edge_count: np.ndarray
     corner_count: np.ndarray
     unresolved_nlos_mask: np.ndarray
+    cd_validity_mask: np.ndarray
+    first_blocking_building_id: np.ndarray
     mode: str = "single"
 
 
@@ -189,6 +191,8 @@ class DiffractionEvent:
     incident_angle_rad: float | None = None
     diffraction_angle_rad: float | None = None
     corner_model: str | None = None
+    incident_direction_rc: tuple[float, float] | None = None
+    outgoing_direction_rc: tuple[float, float] | None = None
 
 
 @dataclass
@@ -201,6 +205,7 @@ class DiffractionSolution:
     termination: str
     is_los: bool = True
     corner_diagnostics: list[dict[str, Any]] = field(default_factory=list)
+    first_blocking_component_id: int | None = None
 
 
 def load_json(path: Path) -> Any:
@@ -849,6 +854,8 @@ def _set_event_component_id(event: DiffractionEvent, component_labels: np.ndarra
         incident_angle_rad=event.incident_angle_rad,
         diffraction_angle_rad=event.diffraction_angle_rad,
         corner_model=event.corner_model,
+        incident_direction_rc=event.incident_direction_rc,
+        outgoing_direction_rc=event.outgoing_direction_rc,
     )
 
 
@@ -903,6 +910,66 @@ def _first_blocking_component(
             return component_id, float(t)
     return None, None
 
+
+def _segment_entry_parameter(a: np.ndarray, b: np.ndarray, polygon: np.ndarray) -> float | None:
+    """Return the first open-segment parameter inside a polygon, if any.
+
+    This is an exact polygon-interior test for the horizontal footprint.  It
+    deliberately treats a segment that only touches a corner or follows an
+    edge as non-blocking; wall-following is rejected separately.
+    """
+
+    a = np.asarray(a, dtype=np.float64)
+    b = np.asarray(b, dtype=np.float64)
+    direction = b - a
+    if float(np.linalg.norm(direction)) <= 1e-9:
+        return None
+    parameters = [0.0, 1.0]
+    for index in range(len(polygon)):
+        edge_start = np.asarray(polygon[index], dtype=np.float64)
+        edge_end = np.asarray(polygon[(index + 1) % len(polygon)], dtype=np.float64)
+        edge_direction = edge_end - edge_start
+        denominator = _cross2(direction, edge_direction)
+        relative = edge_start - a
+        if abs(denominator) <= 1e-10:
+            continue
+        t = _cross2(relative, edge_direction) / denominator
+        u = _cross2(relative, direction) / denominator
+        if -1e-10 <= t <= 1.0 + 1e-10 and -1e-10 <= u <= 1.0 + 1e-10:
+            parameters.append(float(np.clip(t, 0.0, 1.0)))
+    parameters = sorted(set(round(value, 12) for value in parameters))
+    for left, right in zip(parameters[:-1], parameters[1:]):
+        if right - left <= 1e-10:
+            continue
+        midpoint = a + 0.5 * (left + right) * direction
+        if _polygon_contains_point(midpoint, polygon):
+            return float(left)
+    return None
+
+
+def _first_blocking_polygon(
+    component_to_polygons: dict[int, list[np.ndarray]],
+    current: np.ndarray,
+    target: np.ndarray,
+) -> tuple[int | None, float | None]:
+    """Find the first actual footprint interior hit along CurrentPoint -> Rx.
+
+    OWR-CD must identify the first blocking building geometrically, rather than
+    sampling the raster and accidentally treating a boundary pixel as a new
+    blocker after a corner.  Ties are resolved by component ID.
+    """
+
+    best_component: int | None = None
+    best_parameter: float | None = None
+    for component_id in sorted(component_to_polygons):
+        for polygon in component_to_polygons[component_id]:
+            entry = _segment_entry_parameter(current, target, polygon)
+            if entry is None:
+                continue
+            if best_parameter is None or (entry, component_id) < (best_parameter, int(best_component)):
+                best_component = int(component_id)
+                best_parameter = float(entry)
+    return best_component, best_parameter
 
 def _corner_angles(polygon: np.ndarray, corner_index: int) -> tuple[float, float, float]:
     """Return interior wedge, incident angle and outgoing edge angle at a corner."""
@@ -972,7 +1039,7 @@ def _corner_event(
 
     corner = np.asarray(polygon[corner_index], dtype=np.float64)
     corner_endpoint = DiffractionEndpoint(float(corner[0]), float(corner[1]), current.z_m)
-    incoming_from_corner = np.asarray([current.row - corner[0], current.col - corner[1]], dtype=np.float64)
+    incoming_from_corner = np.asarray([corner[0] - current.row, corner[1] - current.col], dtype=np.float64)
     outgoing_from_corner = np.asarray([target.row - corner[0], target.col - corner[1]], dtype=np.float64)
     incoming_norm = float(np.linalg.norm(incoming_from_corner))
     outgoing_norm = float(np.linalg.norm(outgoing_from_corner))
@@ -1009,6 +1076,8 @@ def _corner_event(
         incident_angle_rad=incident_angle,
         diffraction_angle_rad=diffraction_angle,
         corner_model="canonical_utd_wedge",
+        incident_direction_rc=tuple((incoming_from_corner / max(incoming_norm, 1e-12)).tolist()),
+        outgoing_direction_rc=tuple((outgoing_from_corner / max(outgoing_norm, 1e-12)).tolist()),
     )
 
 
@@ -1107,7 +1176,7 @@ def _segment_overlaps_any_polygon_edge(a: np.ndarray, b: np.ndarray, polygons: l
 def _turn_angle(current: np.ndarray, corner: np.ndarray, target: np.ndarray) -> float:
     """Return the deterministic direction change at a candidate corner."""
 
-    incoming = np.asarray(current, dtype=np.float64) - np.asarray(corner, dtype=np.float64)
+    incoming = np.asarray(corner, dtype=np.float64) - np.asarray(current, dtype=np.float64)
     outgoing = np.asarray(target, dtype=np.float64) - np.asarray(corner, dtype=np.float64)
     denominator = max(float(np.linalg.norm(incoming) * np.linalg.norm(outgoing)), 1e-12)
     cosine = float(np.clip(np.dot(incoming, outgoing) / denominator, -1.0, 1.0))
@@ -1115,12 +1184,11 @@ def _turn_angle(current: np.ndarray, corner: np.ndarray, target: np.ndarray) -> 
 
 
 def _silhouette_corner_indices(current: np.ndarray, polygon: np.ndarray) -> tuple[set[int], set[int]]:
-    """Return visible and tangent/silhouette vertex indices from an exterior point.
+    """Return visible vertices and the two deterministic tangent corners.
 
-    Visible vertices are reduced to the two extreme polar directions.  Those
-    extremes are the polygon's deterministic tangent/silhouette candidates;
-    intermediate boundary vertices are never used as recursive propagation
-    nodes.
+    Visible vertices are tested against the polygon interior and boundary.
+    The silhouette pair bounds the smallest circular angular interval seen
+    from CurrentPoint; intermediate vertices are not propagation nodes.
     """
 
     visible: list[int] = []
@@ -1132,22 +1200,22 @@ def _silhouette_corner_indices(current: np.ndarray, polygon: np.ndarray) -> tupl
             visible.append(index)
     if len(visible) <= 2:
         return set(visible), set(visible)
+
     angles = {
-        index: math.atan2(float(polygon[index][0] - current[0]), float(polygon[index][1] - current[1]))
+        index: float(math.atan2(float(polygon[index][0] - current[0]), float(polygon[index][1] - current[1])) % (2.0 * math.pi))
         for index in visible
     }
-    best_pair: tuple[int, int] | None = None
-    best_separation = -1.0
-    for left_index, left in enumerate(visible):
-        for right in visible[left_index + 1:]:
-            difference = abs(angles[left] - angles[right])
-            separation = min(difference, 2.0 * math.pi - difference)
-            key = (separation, -min(left, right), -max(left, right))
-            if best_pair is None or key > (best_separation, -min(best_pair), -max(best_pair)):
-                best_separation = separation
-                best_pair = (left, right)
-    return set(visible), set(best_pair or visible[:2])
-
+    ordered = sorted(visible, key=lambda index: (angles[index], index))
+    gaps: list[tuple[float, int]] = []
+    for position, left_index in enumerate(ordered):
+        right_index = ordered[(position + 1) % len(ordered)]
+        left_angle = angles[left_index]
+        right_angle = angles[right_index] if position + 1 < len(ordered) else angles[right_index] + 2.0 * math.pi
+        gaps.append((right_angle - left_angle, position))
+    _largest_gap, gap_position = max(gaps, key=lambda item: (item[0], -ordered[item[1]]))
+    left_tangent = ordered[(gap_position + 1) % len(ordered)]
+    right_tangent = ordered[gap_position]
+    return set(visible), {left_tangent, right_tangent}
 
 def _solve_owr_cd_diffraction(
     height_map_m: np.ndarray,
@@ -1161,25 +1229,24 @@ def _solve_owr_cd_diffraction(
     component_labels: np.ndarray | None = None,
     max_corner_depth: int = 3,
 ) -> DiffractionSolution:
-    """OWR-CD: route only through valid silhouettes of successive blockers.
+    """Strict one-way recursive corner diffraction.
 
-    The solver deliberately does not build a corner graph.  At every step it
-    identifies the first blocking component on the current point-to-Rx ray,
-    validates that component's tangent corners, selects one, and immediately
-    re-tests the new point-to-Rx segment.  Re-entry into the previous building
-    is unresolved rather than repaired by walking along another wall corner.
+    Each recursion examines only the first footprint that blocks the current
+    point-to-Rx segment. It tests that building's tangent/silhouette corners
+    independently; it never constructs a global corner graph and never
+    advances from one corner to another on the same building.
     """
 
     if component_labels is None:
         component_labels = _building_component_labels(height_map_m)
     if isinstance(footprint_polygons, dict):
-        # compute_physics_maps pre-associates polygons once for a full-map run.
         component_to_polygons = footprint_polygons
     else:
         polygons = _normalize_footprint_polygons(footprint_polygons)
         if not polygons:
             polygons = _extract_footprint_polygons(height_map_m)
         component_to_polygons = _associate_footprints_with_components(polygons, component_labels)
+
     current = _endpoint_from_tx(height_map_m, tx)
     target = DiffractionEndpoint(float(rx_row), float(rx_col), float(rx_height_m))
     events: list[DiffractionEvent] = []
@@ -1187,48 +1254,62 @@ def _solve_owr_cd_diffraction(
     visited_components: set[int] = set()
     diagnostics: list[dict[str, Any]] = []
     all_polygons = [polygon for polygons in component_to_polygons.values() for polygon in polygons]
+    first_blocking_component_id: int | None = None
 
     def endpoint_dict(endpoint: DiffractionEndpoint) -> dict[str, float]:
         return {"row": endpoint.row, "col": endpoint.col, "z_m": endpoint.z_m}
 
     def finish(termination: str, is_los: bool) -> DiffractionSolution:
         return DiffractionSolution(
-            "owr-cd",
-            float(sum(event.loss_db for event in events)),
-            events,
-            termination,
-            is_los,
-            diagnostics,
+            mode="owr-cd",
+            loss_db=float(sum(event.loss_db for event in events)),
+            events=events,
+            termination=termination,
+            is_los=is_los,
+            corner_diagnostics=diagnostics,
+            first_blocking_component_id=first_blocking_component_id,
         )
 
-    for depth in range(max_corner_depth):
-        component_id, progress = _first_blocking_component(component_labels, current, target, resolution_m, frozenset())
+    # +1 is intentional: after the max-th corner, Step 1 must still re-check
+    # CurrentPoint -> Rx and allow a valid chain to terminate at Rx.
+    for depth in range(max_corner_depth + 1):
+        current_xy = np.asarray([current.row, current.col], dtype=np.float64)
+        target_xy = np.asarray([target.row, target.col], dtype=np.float64)
+        component_id, progress = _first_blocking_polygon(component_to_polygons, current_xy, target_xy)
         if component_id is None:
             return finish("los" if not events else "rx_visible", not bool(events))
-        if progress is None:
-            return finish("no_progress", False)
+        if first_blocking_component_id is None:
+            first_blocking_component_id = component_id
+        if depth >= max_corner_depth:
+            return finish("max_corner_depth", False)
         if component_id in visited_components:
             return finish("same_building_reentry", False)
         blocking_polygons = component_to_polygons.get(component_id, [])
         if not blocking_polygons:
             return finish("missing_blocking_footprint", False)
-        current_xy = np.asarray([current.row, current.col], dtype=np.float64)
-        target_xy = np.asarray([target.row, target.col], dtype=np.float64)
+
         visible_indices: set[int] = set()
         silhouette_indices: set[int] = set()
         for polygon_index, polygon in enumerate(blocking_polygons):
             visible, silhouette = _silhouette_corner_indices(current_xy, polygon)
             visible_indices.update((polygon_index << 16) | index for index in visible)
             silhouette_indices.update((polygon_index << 16) | index for index in silhouette)
+
         candidate_records: list[dict[str, Any]] = []
         candidates: list[tuple[tuple[float, float, float, float, float], DiffractionEvent, dict[str, Any]]] = []
-        distance_before = float(np.linalg.norm(target_xy - current_xy))
+        forward_vector = target_xy - current_xy
+        forward_norm_sq = float(np.dot(forward_vector, forward_vector))
         for polygon_index, polygon in enumerate(blocking_polygons):
             for corner_index, corner in enumerate(polygon):
                 corner_code = (polygon_index << 16) | corner_index
                 corner_array = np.asarray(corner, dtype=np.float64)
-                corner_key = (component_id, int(round(float(corner[0]) * 2.0)), int(round(float(corner[1]) * 2.0)))
+                corner_key = (
+                    component_id,
+                    int(round(float(corner[0]) * 2.0)),
+                    int(round(float(corner[1]) * 2.0)),
+                )
                 record: dict[str, Any] = {
+                    "building_id": component_id,
                     "building_component_id": component_id,
                     "polygon_index": polygon_index,
                     "corner_index": corner_index,
@@ -1243,40 +1324,91 @@ def _solve_owr_cd_diffraction(
                 elif corner_code not in silhouette_indices:
                     record["reject_reason"] = "not_silhouette_tangent"
                 else:
-                    current_to_corner = float(np.linalg.norm(corner_array - current_xy))
-                    corner_to_target = float(np.linalg.norm(target_xy - corner_array))
-                    route_progress = float(np.dot(corner_array - current_xy, target_xy - current_xy))
-                    record.update({"incoming_distance_px": current_to_corner, "outgoing_distance_px": corner_to_target, "forward_projection": route_progress})
-                    if current_to_corner <= 0.5 or corner_to_target >= distance_before - 1e-6 or route_progress <= 0.0:
+                    incoming_vector = corner_array - current_xy
+                    current_to_corner = float(np.linalg.norm(incoming_vector))
+                    corner_to_target_vector = target_xy - corner_array
+                    corner_to_target = float(np.linalg.norm(corner_to_target_vector))
+                    route_progress = float(np.dot(incoming_vector, forward_vector) / max(forward_norm_sq, 1e-12))
+                    record.update({
+                        "incoming_distance_px": current_to_corner,
+                        "outgoing_distance_px": corner_to_target,
+                        "forward_projection": route_progress,
+                    })
+                    if current_to_corner <= 0.25 or corner_to_target <= 0.25 or route_progress <= 1e-6:
                         record["reject_reason"] = "not_forward_progress"
                     elif _segment_overlaps_any_polygon_edge(current_xy, corner_array, all_polygons):
                         record["reject_reason"] = "incoming_wall_overlap"
-                    elif _segment_enters_polygon(current_xy, corner_array, polygon) or _segment_hits_any_polygon(current_xy, corner_array, [item for item in all_polygons if item is not polygon]):
+                    elif _segment_hits_any_polygon(current_xy, corner_array, all_polygons):
                         record["reject_reason"] = "incoming_blocked"
                     elif _segment_overlaps_any_polygon_edge(corner_array, target_xy, all_polygons):
                         record["reject_reason"] = "outgoing_wall_overlap"
                     elif _segment_enters_polygon(corner_array, target_xy, polygon):
                         record["reject_reason"] = "outgoing_reenters_blocking_building"
                     else:
-                        event = _corner_event(current, target, polygon, corner_index, component_id, depth, resolution_m, wavelength_m)
-                        turn_angle = _turn_angle(current_xy, corner_array, target_xy)
-                        record.update({"turn_angle_rad": turn_angle, "utd_loss_db": event.loss_db, "accepted": True})
-                        candidates.append(((current_to_corner + corner_to_target, turn_angle, event.loss_db, float(corner[0]), float(corner[1])), event, record))
+                        outgoing_unit = corner_to_target_vector / max(corner_to_target, 1e-12)
+                        probe = corner_array + min(0.25, 0.1 * max(resolution_m, 1e-6)) * outgoing_unit
+                        if _polygon_contains_point(probe, polygon):
+                            record["reject_reason"] = "outgoing_does_not_leave_blocking_building"
+                        else:
+                            event = _corner_event(
+                                current, target, polygon, corner_index, component_id,
+                                depth, resolution_m, wavelength_m,
+                            )
+                            turn_angle = _turn_angle(current_xy, corner_array, target_xy)
+                            record.update({
+                                "turn_angle_rad": turn_angle,
+                                "utd_loss_db": event.loss_db,
+                                "incident_direction_rc": event.incident_direction_rc,
+                                "outgoing_direction_rc": event.outgoing_direction_rc,
+                                "wedge_angle_rad": event.wedge_angle_rad,
+                                "accepted": True,
+                            })
+                            score = (
+                                current_to_corner + corner_to_target,
+                                turn_angle,
+                                event.loss_db,
+                                float(corner[0]),
+                                float(corner[1]),
+                            )
+                            candidates.append((score, event, record))
                 candidate_records.append(record)
+
         if not candidates:
-            diagnostics.append({"depth": depth, "current": endpoint_dict(current), "rx": endpoint_dict(target), "blocking_building_id": component_id, "blocking_progress": progress, "candidates": candidate_records, "termination": "no_valid_corner"})
+            diagnostics.append({
+                "depth": depth,
+                "current": endpoint_dict(current),
+                "rx": endpoint_dict(target),
+                "blocking_building_id": component_id,
+                "blocking_progress": progress,
+                "candidates": candidate_records,
+                "termination": "no_valid_corner",
+            })
             return finish("no_valid_corner", False)
+
         candidates.sort(key=lambda item: item[0])
         _score, event, selected_record = candidates[0]
         selected_record["selected"] = True
-        diagnostics.append({"depth": depth, "current": endpoint_dict(current), "rx": endpoint_dict(target), "blocking_building_id": component_id, "blocking_progress": progress, "candidates": candidate_records, "selected_corner": selected_record["corner"]})
-        corner_key = (component_id, int(round(float(event.edge.row) * 2.0)), int(round(float(event.edge.col) * 2.0)))
+        diagnostics.append({
+            "depth": depth,
+            "current": endpoint_dict(current),
+            "rx": endpoint_dict(target),
+            "blocking_building_id": component_id,
+            "blocking_progress": progress,
+            "candidates": candidate_records,
+            "selected_corner": selected_record["corner"],
+            "selected_building_id": component_id,
+        })
+        corner_key = (
+            component_id,
+            int(round(float(event.edge.row) * 2.0)),
+            int(round(float(event.edge.col) * 2.0)),
+        )
         visited_corners.add(corner_key)
+        visited_components.add(component_id)
         events.append(event)
         current = event.edge
-        visited_components.add(component_id)
-    return finish("max_corner_depth", False)
 
+    return finish("max_corner_depth", False)
 
 def _solve_single_diffraction(
     height_map_m: np.ndarray,
@@ -1596,6 +1728,8 @@ def compute_physics_maps(
     edge_count = np.zeros(shape, dtype=np.int32)
     corner_count = np.zeros(shape, dtype=np.int32)
     unresolved_nlos_mask = np.zeros(shape, dtype=bool)
+    cd_validity_mask = np.zeros(shape, dtype=bool)
+    first_blocking_building_id = np.full(shape, -1, dtype=np.int32)
     component_labels = _building_component_labels(height_map_m) if resolved_mode in ("owr-rd", "deygout", "owr-cd") else None
     corner_component_polygons: dict[int, list[np.ndarray]] | None = None
     if resolved_mode == "owr-cd":
@@ -1622,12 +1756,15 @@ def compute_physics_maps(
                     max_corner_depth,
                 )
                 los_mask[rx_row, rx_col] = bool(solution.is_los)
+                if resolved_mode == "owr-cd":
+                    first_blocking_building_id[rx_row, rx_col] = -1 if solution.first_blocking_component_id is None else int(solution.first_blocking_component_id)
+                    cd_validity_mask[rx_row, rx_col] = bool(solution.is_los or solution.termination == "rx_visible")
                 edge_count[rx_row, rx_col] = len(solution.events)
                 corner_count[rx_row, rx_col] = sum(event.event_type == "corner" for event in solution.events)
                 unresolved_nlos_mask[rx_row, rx_col] = bool(
                     resolved_mode == "owr-cd"
                     and not solution.is_los
-                    and solution.termination not in ("los", "rx_visible")
+                    and not cd_validity_mask[rx_row, rx_col]
                 )
                 if not solution.events or unresolved_nlos_mask[rx_row, rx_col]:
                     continue
@@ -1656,5 +1793,7 @@ def compute_physics_maps(
         edge_count=edge_count,
         corner_count=corner_count,
         unresolved_nlos_mask=unresolved_nlos_mask,
+        cd_validity_mask=cd_validity_mask,
+        first_blocking_building_id=first_blocking_building_id,
         mode=resolved_mode,
     )
