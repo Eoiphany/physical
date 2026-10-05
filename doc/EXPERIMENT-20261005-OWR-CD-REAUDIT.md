@@ -101,3 +101,60 @@ The dispatcher resolved `auto -> owr-rd`. Compared with the previous OWR-RD arra
 ```
 
 Data remains external; no machine-specific dataset path is part of the repository configuration.
+## Left-bottom diagnostic and signed convention
+
+For the disputed bottom-left sample `Rx=(row=255,col=0)`, the Rx pixel itself is empty (`building height = 0`), but the Tx-to-Rx segment first intersects building component `55` at corner `(row=187,col=87)`. The actual chain is:
+
+```text
+Tx -> B55:C(187,87) -> Rx(255,0)
+```
+
+The values are:
+
+```text
+FSPL                 = -89.9835 dB
+corner loss magnitude = 64.5562 dB
+diffraction_loss_db   = -64.5562 dB
+physics_prior_db      = -154.5397 dB
+```
+
+The empty receiver pixel is therefore not a LOS sample. A corner is not a free-standing source that can radiate into arbitrary empty space: it must be illuminated by the incoming segment and the receiver must be reached through a valid outgoing segment. For LOS pixels, OWR-CD produces no event and zero diffraction loss. For NLOS pixels, a valid corner adds attenuation; it cannot improve on FSPL. In the repository's signed convention, more negative values mean weaker received path gain / larger positive loss. The positive loss arrays are saved as `*_loss_magnitude_db.npy` to avoid this sign ambiguity.
+
+The dedicated figure is `runs/cross_dataset_physics_prior/radiomapseer/strict_owr_cd_reaudit_20261005_v2/left_bottom_case/rx_255_0/owr_cd_path.png`.
+
+## Calculation used by CD
+
+For each accepted corner `C`, with `A=CurrentPoint` and `R=Rx`:
+
+```text
+d1 = resolution * ||C-A||
+d2 = resolution * ||R-C||
+λ  = c / f
+k  = 2π / λ
+ui = (C-A) / ||C-A||
+uo = (R-C) / ||R-C||
+Δθ = acos(ui · uo)
+β  = 2π - α
+n  = β / π
+```
+
+`α` is the footprint interior angle and `β` is the canonical exterior wedge angle. The current material-independent canonical wedge approximation evaluates:
+
+```text
+D = | cot((π+Δθ)/(2n)) + cot((π-Δθ)/(2n)) |
+    / (2n√(2πk))
+    · max(0.05, |sin(θi)|)
+    · √((d1+d2)/(d1d2))
+
+Lcorner = max(0, -20 log10(max(D, 1e-9)))
+```
+
+The implementation floors each distance at `λ/2` for numerical stability. For a chain of accepted corners:
+
+```text
+Ltotal = Σ Lcorner_j
+signed diffraction_loss_db = -Ltotal
+signed physics_prior_db = fspl_db - Ltotal
+```
+
+Unresolved NLOS pixels are marked invalid and are not considered valid CD predictions. No GT value enters this calculation.

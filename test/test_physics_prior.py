@@ -226,6 +226,23 @@ def test_owr_cd_case_a_los_has_no_diffraction():
     assert solution.first_blocking_component_id is None
 
 
+def test_owr_cd_empty_rx_pixel_can_still_be_nlos():
+    """An empty Rx pixel does not imply LOS when the Tx-Rx ray crosses B1."""
+
+    height = np.zeros((20, 20), dtype=np.float32)
+    height[5:10, 5:10] = 25.0
+    polygon = {"coordinates_xy": [[5.0, 5.0], [10.0, 5.0], [10.0, 10.0], [5.0, 10.0]]}
+    solution = solve_diffraction(
+        height, TxRecord(x_m=2.0, y_m=7.0, z_m=1.5), 2, 12,
+        "owr-cd", 1.5, 1.0, 299792458.0 / 3.5e9,
+        footprint_polygons=[polygon],
+    )
+    assert height[2, 12] == 0.0
+    assert not solution.is_los
+    assert solution.first_blocking_component_id == 0
+    assert solution.termination == "rx_visible"
+    assert len(solution.events) == 1
+
 def test_owr_cd_case_c_recurses_only_to_next_building():
     """Case C: a legal chain contains different blocking buildings only."""
 
@@ -279,6 +296,7 @@ if __name__ == "__main__":
         test_owr_cd_rejects_same_building_wall_walk,
         test_owr_cd_case_a_los_has_no_diffraction,
         test_owr_cd_case_c_recurses_only_to_next_building,
+        test_owr_cd_empty_rx_pixel_can_still_be_nlos,
         test_owr_cd_case_d_rejects_one_silhouette_and_accepts_another,
         test_owr_cd_accepts_one_valid_silhouette_corner,
     ]
