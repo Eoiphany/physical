@@ -170,28 +170,45 @@ def test_auto_dispatch_uses_height_relationship() -> None:
     assert select_diffraction_method(height, rooftop_tx, 1.5) == "owr-rd"
 
 
-def test_owr_cd_uses_footprint_corners_and_forward_recursion() -> None:
+def test_owr_cd_rejects_same_building_wall_walk() -> None:
     """验证OWR-CD从真实footprint候选corner生成单向、去重且可推进的递归链。"""
 
     height = np.zeros((15, 15), dtype=np.float32)
-    height[5:9, 4:7] = 25.0
-    height[5:9, 9:12] = 25.0
+    height[5:9, 4:12] = 25.0
     tx = TxRecord(x_m=1.0, y_m=7.0, z_m=1.5)
-    polygons = [
-        {"coordinates_xy": [[4.0, 5.0], [7.0, 5.0], [7.0, 9.0], [4.0, 9.0]]},
-        {"coordinates_xy": [[9.0, 5.0], [12.0, 5.0], [12.0, 9.0], [9.0, 9.0]]},
-    ]
+    polygons = [{"coordinates_xy": [[4.0, 5.0], [12.0, 5.0], [12.0, 9.0], [4.0, 9.0]]}]
     solution = solve_diffraction(
         height, tx, 7, 13, "owr-cd", 1.5, 1.0, 299792458.0 / 3.5e9,
         footprint_polygons=polygons,
     )
-    assert solution.events
+    assert solution.events == []
     assert not solution.is_los
-    assert all(event.event_type == "corner" for event in solution.events)
-    assert all(event.corner_model == "canonical_utd_wedge" for event in solution.events)
-    keys = {(round(event.edge.row, 4), round(event.edge.col, 4)) for event in solution.events}
-    assert len(keys) == len(solution.events)
-    assert all(event.d1_m > 0.0 and event.d2_m > 0.0 and event.loss_db >= 0.0 for event in solution.events)
+    assert solution.termination == "no_valid_corner"
+    reasons = {candidate["reject_reason"] for step in solution.corner_diagnostics for candidate in step["candidates"]}
+    assert "outgoing_reenters_blocking_building" in reasons
+
+
+def test_owr_cd_accepts_one_valid_silhouette_corner() -> None:
+    """A legal single-corner detour must restore Rx visibility."""
+
+    height = np.zeros((15, 15), dtype=np.float32)
+    height[4, 4] = 25.0
+    height[5, 4:7] = 25.0
+    height[6, 4:9] = 25.0
+    height[7, 4:7] = 25.0
+    height[8, 4] = 25.0
+    tx = TxRecord(x_m=1.0, y_m=5.0, z_m=1.5)
+    polygon = {"coordinates_xy": [[4.0, 4.0], [8.0, 6.0], [4.0, 8.0]]}
+    solution = solve_diffraction(
+        height, tx, 3, 12, "owr-cd", 1.5, 1.0, 299792458.0 / 3.5e9,
+        footprint_polygons=[polygon], max_corner_depth=3,
+    )
+    assert len(solution.events) == 1
+    assert solution.termination == "rx_visible"
+    assert solution.events[0].event_type == "corner"
+    assert solution.events[0].corner_model == "canonical_utd_wedge"
+    assert solution.events[0].component_id == 0
+    assert any(candidate.get("selected") for step in solution.corner_diagnostics for candidate in step["candidates"])
 
 
 if __name__ == "__main__":
@@ -208,7 +225,8 @@ if __name__ == "__main__":
         test_paper_signed_pl_is_negative_of_loss_magnitude,
         test_recursive_modes_do_not_repeat_one_connected_building,
         test_auto_dispatch_uses_height_relationship,
-        test_owr_cd_uses_footprint_corners_and_forward_recursion,
+        test_owr_cd_rejects_same_building_wall_walk,
+        test_owr_cd_accepts_one_valid_silhouette_corner,
     ]
     for test in tests:
         test()

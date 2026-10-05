@@ -92,6 +92,7 @@ def _save_arrays(output_dir: Path, maps: PhysicsMaps) -> None:
         "physics_prior_loss_magnitude_db": -maps.physics_prior_db,
         "edge_count": maps.edge_count,
         "corner_count": maps.corner_count,
+        "unresolved_nlos_mask": maps.unresolved_nlos_mask,
     }
     for name, array in arrays.items():
         np.save(array_dir / f"{name}.npy", array)
@@ -217,6 +218,7 @@ def _serialize_solution(solution) -> dict:
         "is_los": solution.is_los,
         "edge_count": len(solution.events),
         "corner_count": sum(event.event_type == "corner" for event in solution.events),
+        "corner_diagnostics": solution.corner_diagnostics,
         "events": [
             {
                 "depth": event.depth,
@@ -338,11 +340,30 @@ def render_corner_recursive_debug(
     tx_row = height_map_m.shape[0] - 1 - tx.y_m
     ax.plot(tx.x_m, tx_row, marker="+", color="#D55E00", markersize=12, markeredgewidth=2.0, label="Tx")
     ax.plot(rx_col, rx_row, marker="o", color="#E45756", markersize=6, markeredgewidth=1.5, markerfacecolor="none", label="Rx")
+    ax.plot([tx.x_m, rx_col], [tx_row, rx_row], color="#CC3311", linestyle=":", linewidth=1.4, label="original Tx-Rx LOS")
+    for diagnostic in getattr(solution, "corner_diagnostics", []):
+        for candidate in diagnostic.get("candidates", []):
+            corner = candidate.get("corner", {})
+            row = float(corner.get("row", np.nan))
+            col = float(corner.get("col", np.nan))
+            if not np.isfinite(row + col):
+                continue
+            if candidate.get("selected"):
+                ax.scatter(col, row, color="#B279A2", marker="o", s=95, zorder=6, label="selected corner")
+            elif candidate.get("silhouette_corner"):
+                ax.scatter(col, row, facecolors="none", edgecolors="#F0E442", marker="o", s=75, linewidths=1.5, zorder=5, label="rejected silhouette corner")
+            elif candidate.get("visible_from_current"):
+                ax.scatter(col, row, color="#999999", marker="x", s=38, zorder=4, label="rejected visible vertex")
+    path_points = [(float(tx.x_m), float(tx_row))]
+    path_points.extend((float(event.edge.col), float(event.edge.row)) for event in solution.events)
+    path_points.append((float(rx_col), float(rx_row)))
+    for segment_index in range(len(path_points) - 1):
+        start = path_points[segment_index]
+        end = path_points[segment_index + 1]
+        ax.plot([start[0], end[0]], [start[1], end[1]], color="#F58518", linewidth=2.4, linestyle="-" if segment_index == 0 else "--", label="selected free-space path" if segment_index == 0 else None)
     for index, event in enumerate(solution.events):
-        ax.plot([event.a.col, event.edge.col], [event.a.row, event.edge.row], color="#F58518", linewidth=2.2)
-        ax.plot([event.edge.col, event.b.col], [event.edge.row, event.b.row], color="#54A24B", linewidth=2.2, linestyle="--")
-        ax.scatter(event.edge.col, event.edge.row, color="#B279A2", marker="o", s=65, zorder=5)
-        ax.annotate(f"C{index + 1}", (event.edge.col, event.edge.row), xytext=(4, 4), textcoords="offset points", fontsize=9)
+        ax.scatter(event.edge.col, event.edge.row, color="#B279A2", marker="o", s=65, zorder=7)
+        ax.annotate(f"C{index + 1} / B{event.component_id}", (event.edge.col, event.edge.row), xytext=(4, 4), textcoords="offset points", fontsize=9)
     ax.set_title(f"{dataset_name} OWR-CD: Tx → corner chain → Rx")
     ax.set_xlabel("image col / x")
     ax.set_ylabel("image row")
@@ -352,6 +373,7 @@ def render_corner_recursive_debug(
         f"wedge={event.wedge_angle_rad:.3f} rad, loss={event.loss_db:.2f} dB"
         for index, event in enumerate(solution.events)
     ) or f"termination={solution.termination}"
+    detail += f"\naccepted corners={len(solution.events)}; diagnostics={len(getattr(solution, 'corner_diagnostics', []))}"
     ax.text(0.01, 0.99, detail, transform=ax.transAxes, va="top", fontsize=8, bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.88})
     fig.savefig(output_stem.with_suffix(".png"), dpi=300)
     fig.savefig(output_stem.with_suffix(".pdf"))
@@ -421,6 +443,7 @@ def _mode_metrics(maps: PhysicsMaps, ground_truth_path_loss_db: np.ndarray) -> d
         "prediction_below_ground_truth_min_ratio": float(np.mean(maps.physics_prior_db < ground_truth_min)),
         "corner_count_mean": float(np.mean(maps.corner_count)),
         "corner_count_max": int(np.max(maps.corner_count)),
+        "unresolved_nlos_ratio": float(np.mean(maps.unresolved_nlos_mask)),
     }
 
 
@@ -551,7 +574,7 @@ def main() -> None:
                     diffraction_mode=mode,
                     fspl_db=fspl_db,
                     footprint_polygons=scene.polygons,
-                    max_corner_depth=int(config["physics_prior"].get("max_corner_depth", 32)),
+                    max_corner_depth=int(config["physics_prior"].get("max_corner_depth", 3)),
                 )
                 maps_by_mode[mode] = maps
                 mode_dir = sample_dir / "modes" / mode if args.compare_all_modes else sample_dir
@@ -580,7 +603,7 @@ def main() -> None:
                     step_m,
                     None,
                     scene.polygons,
-                    int(config["physics_prior"].get("max_corner_depth", 32)),
+                    int(config["physics_prior"].get("max_corner_depth", 3)),
                 )
                 for mode in (*DIFFRACTION_MODES, "auto")
             }
