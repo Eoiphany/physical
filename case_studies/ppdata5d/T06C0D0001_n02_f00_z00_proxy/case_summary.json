@@ -1,0 +1,51 @@
+{
+  "dataset": "PPData5D",
+  "sample": "T06C0D0001_n02_f00_z00",
+  "frequency_id": "f00",
+  "frequency_hz": 150000000.0,
+  "source_files": {
+    "npz": "npz/T06C0D0001_n02_bdtr.npz",
+    "rss_png": "png/06.DenseUrban/T06C0D0001_n02_f00_ss_z00.png"
+  },
+  "observed_npz_keys": [
+    "inBldg_zyx",
+    "terrain_yx"
+  ],
+  "observed_shapes": {
+    "inBldg_zyx": [
+      3,
+      128,
+      128
+    ],
+    "terrain_yx": [
+      128,
+      128
+    ]
+  },
+  "proxy_geometry": {
+    "tx_source": "argmax of observed RSS grayscale; not verified transmitter metadata",
+    "tx_image_row_col": [
+      22,
+      97
+    ],
+    "tx_xyz_m_proxy": [
+      970.0,
+      1050.0,
+      7.222688751833353
+    ],
+    "rx_height_m_proxy_absolute": 7.222688751833353,
+    "building_top_proxy": "terrain_yx + building_height_proxy_m on inBldg_zyx[0]",
+    "building_height_proxy_m": 20.0,
+    "terrain_in_free_space_los": false
+  },
+  "auto_method_counts": {
+    "los-fspl": 6427,
+    "owr-cd": 7275,
+    "owr-rd": 2682
+  },
+  "los_ratio": 0.39227294921875,
+  "fallback_to_rd_ratio": 0.1636962890625,
+  "metric_status": "not_reported",
+  "metric_limitation": "The inspected PPData5D files do not verify Tx position/absolute z or RSS-to-dB calibration; raw RSS grayscale is not compared as signed pathloss.",
+  "reproducibility_note": "This output is a provisional geometry case study, not a validated cross-dataset dB benchmark."
+}

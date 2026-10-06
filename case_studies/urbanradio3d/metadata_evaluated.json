@@ -1,0 +1,1215 @@
+{
+  "scene_id": "0",
+  "tx_id": "0",
+  "selected_diffraction_method": "auto",
+  "resolved_diffraction_method": "auto-per-nlos-rx",
+  "compare_all_modes": false,
+  "executed_methods": [
+    "auto"
+  ],
+  "auto_selected_method": "per-nlos-rx",
+  "auto_height_method_hint": "owr-rd",
+  "resolved_method_counts": {
+    "los-fspl": 24014,
+    "owr-rd": 41522
+  },
+  "auto_selection_rule": "Use OWR-CD when Tx/Rx heights are close and both are below half the maximum building height; otherwise use OWR-RD.",
+  "tx_xyz_m": [
+    94.0,
+    2.0,
+    20.0
+  ],
+  "tx_rooftop_height_m": null,
+  "tx_image_row_col": [
+    253.0,
+    94.0
+  ],
+  "tx_height_audit": "Tx x/y comes from label filenames; configured 20 m is an explicit proxy",
+  "data_format": "urbanradio3d_directory",
+  "db_convention": {
+    "physics_arrays_fspl_diffraction_prior": "negative signed PL/pathgain dB",
+    "ground_truth_pathgain_and_paper_pl": "negative dB, PL=(P_Rx)_dB-(P_Tx)_dB",
+    "optional_magnitude_arrays": "loss_magnitude_db = -signed_db"
+  },
+  "building_interior_evaluation_rule": {
+    "mask": "height_map_m > 0",
+    "replacement_signed_pathgain_db": -160.0,
+    "raw_solver_arrays_unchanged": true,
+    "evaluation_array": "physics_prior_evaluation_db.npy"
+  },
+  "rx_height_m": 1.0,
+  "debug_rx_row_col": [
+    73,
+    232
+  ],
+  "debug_status": "NLOS",
+  "debug_solutions": {
+    "none": {
+      "mode": "none",
+      "loss_db": 0.0,
+      "signed_loss_db": -0.0,
+      "loss_magnitude_db": 0.0,
+      "termination": "disabled",
+      "is_los": true,
+      "dispatch_method": null,
+      "fallback_from": null,
+      "edge_count": 0,
+      "corner_count": 0,
+      "corner_diagnostics": [],
+      "first_blocking_building_id": null,
+      "events": []
+    },
+    "single": {
+      "mode": "single",
+      "loss_db": 35.58348715804233,
+      "signed_loss_db": -35.58348715804233,
+      "loss_magnitude_db": 35.58348715804233,
+      "termination": "single_edge",
+      "is_los": false,
+      "dispatch_method": null,
+      "fallback_from": null,
+      "edge_count": 1,
+      "corner_count": 0,
+      "corner_diagnostics": [],
+      "first_blocking_building_id": null,
+      "events": [
+        {
+          "depth": 0,
+          "A": {
+            "row": 253.0,
+            "col": 94.0,
+            "z_m": 20.0
+          },
+          "B": {
+            "row": 73.0,
+            "col": 232.0,
+            "z_m": 1.0
+          },
+          "E_star": {
+            "row": 97.0,
+            "col": 214.0,
+            "z_m": 18.92340087890625
+          },
+          "h_m": 15.410476207906502,
+          "d1_m": 196.81757814196257,
+          "d2_m": 34.94636317366912,
+          "nu": 13.669251275905347,
+          "J_nu_db": 35.58348715804233,
+          "building_component_id": null,
+          "event_type": "rooftop",
+          "wedge_angle_rad": null,
+          "incident_angle_rad": null,
+          "diffraction_angle_rad": null,
+          "corner_model": null,
+          "incident_direction_rc": null,
+          "outgoing_direction_rc": null
+        }
+      ]
+    },
+    "owr-rd": {
+      "mode": "owr-rd",
+      "loss_db": 73.47667905059095,
+      "signed_loss_db": -73.47667905059095,
+      "loss_magnitude_db": 73.47667905059095,
+      "termination": "no_obstacle_or_max_edges",
+      "is_los": false,
+      "dispatch_method": null,
+      "fallback_from": null,
+      "edge_count": 3,
+      "corner_count": 0,
+      "corner_diagnostics": [],
+      "first_blocking_building_id": null,
+      "events": [
+        {
+          "depth": 0,
+          "A": {
+            "row": 253.0,
+            "col": 94.0,
+            "z_m": 20.0
+          },
+          "B": {
+            "row": 73.0,
+            "col": 232.0,
+            "z_m": 1.0
+          },
+          "E_star": {
+            "row": 97.0,
+            "col": 214.0,
+            "z_m": 18.92340087890625
+          },
+          "h_m": 15.410476207906502,
+          "d1_m": 196.81757814196257,
+          "d2_m": 34.94636317366912,
+          "nu": 13.669251275905347,
+          "J_nu_db": 35.58348715804233,
+          "building_component_id": 38,
+          "event_type": "rooftop",
+          "wedge_angle_rad": null,
+          "incident_angle_rad": null,
+          "diffraction_angle_rad": null,
+          "corner_model": null,
+          "incident_direction_rc": null,
+          "outgoing_direction_rc": null
+        },
+        {
+          "depth": 1,
+          "A": {
+            "row": 97.0,
+            "col": 214.0,
+            "z_m": 18.92340087890625
+          },
+          "B": {
+            "row": 73.0,
+            "col": 232.0,
+            "z_m": 1.0
+          },
+          "E_star": {
+            "row": 89.0,
+            "col": 220.0,
+            "z_m": 15.520299911499023
+          },
+          "h_m": 2.5713659922281895,
+          "d1_m": 10.563195359093195,
+          "d2_m": 24.71515950828314,
+          "nu": 4.5674874408280095,
+          "J_nu_db": 26.028677258160116,
+          "building_component_id": 35,
+          "event_type": "rooftop",
+          "wedge_angle_rad": null,
+          "incident_angle_rad": null,
+          "diffraction_angle_rad": null,
+          "corner_model": null,
+          "incident_direction_rc": null,
+          "outgoing_direction_rc": null
+        },
+        {
+          "depth": 2,
+          "A": {
+            "row": 89.0,
+            "col": 220.0,
+            "z_m": 15.520299911499023
+          },
+          "B": {
+            "row": 73.0,
+            "col": 232.0,
+            "z_m": 1.0
+          },
+          "E_star": {
+            "row": 79.0,
+            "col": 227.0,
+            "z_m": 7.012499809265137
+          },
+          "h_m": 0.3543423191084134,
+          "d1_m": 14.878933516202393,
+          "d2_m": 9.856477766241515,
+          "nu": 0.7031929124932101,
+          "J_nu_db": 11.864514634388494,
+          "building_component_id": 28,
+          "event_type": "rooftop",
+          "wedge_angle_rad": null,
+          "incident_angle_rad": null,
+          "diffraction_angle_rad": null,
+          "corner_model": null,
+          "incident_direction_rc": null,
+          "outgoing_direction_rc": null
+        }
+      ]
+    },
+    "deygout": {
+      "mode": "deygout",
+      "loss_db": 73.47667905059095,
+      "signed_loss_db": -73.47667905059095,
+      "loss_magnitude_db": 73.47667905059095,
+      "termination": "no_obstacle_or_max_depth",
+      "is_los": false,
+      "dispatch_method": null,
+      "fallback_from": null,
+      "edge_count": 3,
+      "corner_count": 0,
+      "corner_diagnostics": [],
+      "first_blocking_building_id": null,
+      "events": [
+        {
+          "depth": 0,
+          "A": {
+            "row": 253.0,
+            "col": 94.0,
+            "z_m": 20.0
+          },
+          "B": {
+            "row": 73.0,
+            "col": 232.0,
+            "z_m": 1.0
+          },
+          "E_star": {
+            "row": 97.0,
+            "col": 214.0,
+            "z_m": 18.92340087890625
+          },
+          "h_m": 15.410476207906502,
+          "d1_m": 196.81757814196257,
+          "d2_m": 34.94636317366912,
+          "nu": 13.669251275905347,
+          "J_nu_db": 35.58348715804233,
+          "building_component_id": 38,
+          "event_type": "rooftop",
+          "wedge_angle_rad": null,
+          "incident_angle_rad": null,
+          "diffraction_angle_rad": null,
+          "corner_model": null,
+          "incident_direction_rc": null,
+          "outgoing_direction_rc": null
+        },
+        {
+          "depth": 1,
+          "A": {
+            "row": 97.0,
+            "col": 214.0,
+            "z_m": 18.92340087890625
+          },
+          "B": {
+            "row": 73.0,
+            "col": 232.0,
+            "z_m": 1.0
+          },
+          "E_star": {
+            "row": 89.0,
+            "col": 220.0,
+            "z_m": 15.520299911499023
+          },
+          "h_m": 2.5713659922281895,
+          "d1_m": 10.563195359093195,
+          "d2_m": 24.71515950828314,
+          "nu": 4.5674874408280095,
+          "J_nu_db": 26.028677258160116,
+          "building_component_id": 35,
+          "event_type": "rooftop",
+          "wedge_angle_rad": null,
+          "incident_angle_rad": null,
+          "diffraction_angle_rad": null,
+          "corner_model": null,
+          "incident_direction_rc": null,
+          "outgoing_direction_rc": null
+        },
+        {
+          "depth": 2,
+          "A": {
+            "row": 89.0,
+            "col": 220.0,
+            "z_m": 15.520299911499023
+          },
+          "B": {
+            "row": 73.0,
+            "col": 232.0,
+            "z_m": 1.0
+          },
+          "E_star": {
+            "row": 79.0,
+            "col": 227.0,
+            "z_m": 7.012499809265137
+          },
+          "h_m": 0.3543423191084134,
+          "d1_m": 14.878933516202393,
+          "d2_m": 9.856477766241515,
+          "nu": 0.7031929124932101,
+          "J_nu_db": 11.864514634388494,
+          "building_component_id": 28,
+          "event_type": "rooftop",
+          "wedge_angle_rad": null,
+          "incident_angle_rad": null,
+          "diffraction_angle_rad": null,
+          "corner_model": null,
+          "incident_direction_rc": null,
+          "outgoing_direction_rc": null
+        }
+      ]
+    },
+    "owr-cd": {
+      "mode": "owr-cd",
+      "loss_db": 155.86475200658927,
+      "signed_loss_db": -155.86475200658927,
+      "loss_magnitude_db": 155.86475200658927,
+      "termination": "no_valid_corner",
+      "is_los": false,
+      "dispatch_method": null,
+      "fallback_from": null,
+      "edge_count": 3,
+      "corner_count": 3,
+      "corner_diagnostics": [
+        {
+          "depth": 0,
+          "current": {
+            "row": 253.0,
+            "col": 94.0,
+            "z_m": 20.0
+          },
+          "rx": {
+            "row": 73.0,
+            "col": 232.0,
+            "z_m": 1.0
+          },
+          "blocking_building_id": 58,
+          "blocking_progress": 0.261093073593,
+          "candidates": [
+            {
+              "building_id": 58,
+              "building_component_id": 58,
+              "polygon_index": 0,
+              "corner_index": 0,
+              "corner": {
+                "row": 208.0,
+                "col": 149.0
+              },
+              "visible_from_current": true,
+              "silhouette_corner": false,
+              "accepted": false,
+              "reject_reason": "not_silhouette_tangent"
+            },
+            {
+              "building_id": 58,
+              "building_component_id": 58,
+              "polygon_index": 0,
+              "corner_index": 1,
+              "corner": {
+                "row": 206.0,
+                "col": 130.0
+              },
+              "visible_from_current": true,
+              "silhouette_corner": false,
+              "accepted": false,
+              "reject_reason": "not_silhouette_tangent"
+            },
+            {
+              "building_id": 58,
+              "building_component_id": 58,
+              "polygon_index": 0,
+              "corner_index": 2,
+              "corner": {
+                "row": 194.0,
+                "col": 131.0
+              },
+              "visible_from_current": true,
+              "silhouette_corner": true,
+              "accepted": true,
+              "reject_reason": null,
+              "incoming_distance_px": 69.6419413859206,
+              "outgoing_distance_px": 157.61345120261785,
+              "forward_projection": 0.3056916258455797,
+              "turn_angle_rad": 0.13542923951942837,
+              "utd_loss_db": 52.53959849742691,
+              "incident_direction_rc": [
+                -0.8471906271689309,
+                0.5312890373771262
+              ],
+              "outgoing_direction_rc": [
+                -0.7677009739762001,
+                0.6408082510049273
+              ],
+              "wedge_angle_rad": 4.746356493063113,
+              "selected": true
+            },
+            {
+              "building_id": 58,
+              "building_component_id": 58,
+              "polygon_index": 0,
+              "corner_index": 3,
+              "corner": {
+                "row": 196.0,
+                "col": 148.0
+              },
+              "visible_from_current": false,
+              "silhouette_corner": false,
+              "accepted": false,
+              "reject_reason": "not_silhouette_tangent"
+            },
+            {
+              "building_id": 58,
+              "building_component_id": 58,
+              "polygon_index": 0,
+              "corner_index": 4,
+              "corner": {
+                "row": 196.0,
+                "col": 153.0
+              },
+              "visible_from_current": false,
+              "silhouette_corner": false,
+              "accepted": false,
+              "reject_reason": "not_silhouette_tangent"
+            },
+            {
+              "building_id": 58,
+              "building_component_id": 58,
+              "polygon_index": 0,
+              "corner_index": 5,
+              "corner": {
+                "row": 190.0,
+                "col": 154.0
+              },
+              "visible_from_current": false,
+              "silhouette_corner": false,
+              "accepted": false,
+              "reject_reason": "not_silhouette_tangent"
+            },
+            {
+              "building_id": 58,
+              "building_component_id": 58,
+              "polygon_index": 0,
+              "corner_index": 6,
+              "corner": {
+                "row": 190.0,
+                "col": 162.0
+              },
+              "visible_from_current": false,
+              "silhouette_corner": false,
+              "accepted": false,
+              "reject_reason": "not_silhouette_tangent"
+            },
+            {
+              "building_id": 58,
+              "building_component_id": 58,
+              "polygon_index": 0,
+              "corner_index": 7,
+              "corner": {
+                "row": 208.0,
+                "col": 162.0
+              },
+              "visible_from_current": true,
+              "silhouette_corner": true,
+              "accepted": true,
+              "reject_reason": null,
+              "incoming_distance_px": 81.54140052758476,
+              "outgoing_distance_px": 152.0690632574555,
+              "forward_projection": 0.3398647072544903,
+              "turn_angle_rad": 0.5078426392959129,
+              "utd_loss_db": 57.00659480575833,
+              "incident_direction_rc": [
+                -0.5518669008484455,
+                0.8339322057265399
+              ],
+              "outgoing_direction_rc": [
+                -0.8877545314489294,
+                0.46031716445500037
+              ],
+              "wedge_angle_rad": 4.71238898038469
+            }
+          ],
+          "selected_corner": {
+            "row": 194.0,
+            "col": 131.0
+          },
+          "selected_building_id": 58
+        },
+        {
+          "depth": 1,
+          "current": {
+            "row": 194.0,
+            "col": 131.0,
+            "z_m": 20.0
+          },
+          "rx": {
+            "row": 73.0,
+            "col": 232.0,
+            "z_m": 1.0
+          },
+          "blocking_building_id": 52,
+          "blocking_progress": 0.118811881188,
+          "candidates": [
+            {
+              "building_id": 52,
+              "building_component_id": 52,
+              "polygon_index": 0,
+              "corner_index": 0,
+              "corner": {
+                "row": 185.0,
+                "col": 143.0
+              },
+              "visible_from_current": true,
+              "silhouette_corner": false,
+              "accepted": false,
+              "reject_reason": "not_silhouette_tangent"
+            },
+            {
+              "building_id": 52,
+              "building_component_id": 52,
+              "polygon_index": 0,
+              "corner_index": 1,
+              "corner": {
+                "row": 170.0,
+                "col": 143.0
+              },
+              "visible_from_current": true,
+              "silhouette_corner": true,
+              "accepted": true,
+              "reject_reason": null,
+              "incoming_distance_px": 26.832815729997478,
+              "outgoing_distance_px": 131.64345787011217,
+              "forward_projection": 0.16568714274213026,
+              "turn_angle_rad": 0.2787662945288707,
+              "utd_loss_db": 49.73905960237251,
+              "incident_direction_rc": [
+                -0.8944271909999159,
+                0.4472135954999579
+              ],
+              "outgoing_direction_rc": [
+                -0.7368387428390584,
+                0.6760685372440846
+              ],
+              "wedge_angle_rad": 4.649970170388732,
+              "selected": true
+            },
+            {
+              "building_id": 52,
+              "building_component_id": 52,
+              "polygon_index": 0,
+              "corner_index": 2,
+              "corner": {
+                "row": 169.0,
+                "col": 159.0
+              },
+              "visible_from_current": false,
+              "silhouette_corner": false,
+              "accepted": false,
+              "reject_reason": "not_silhouette_tangent"
+            },
+            {
+              "building_id": 52,
+              "building_component_id": 52,
+              "polygon_index": 0,
+              "corner_index": 3,
+              "corner": {
+                "row": 184.0,
+                "col": 160.0
+              },
+              "visible_from_current": true,
+              "silhouette_corner": true,
+              "accepted": true,
+              "reject_reason": null,
+              "incoming_distance_px": 30.675723300355934,
+              "outgoing_distance_px": 132.30646242719968,
+              "forward_projection": 0.16661299412285646,
+              "turn_angle_rad": 0.6633122087167262,
+              "utd_loss_db": 59.671695956905666,
+              "incident_direction_rc": [
+                -0.32599068331940423,
+                0.9453729816262721
+              ],
+              "outgoing_direction_rc": [
+                -0.8389612870276586,
+                0.5441911050990218
+              ],
+              "wedge_angle_rad": 4.72020132144479
+            }
+          ],
+          "selected_corner": {
+            "row": 170.0,
+            "col": 143.0
+          },
+          "selected_building_id": 52
+        },
+        {
+          "depth": 2,
+          "current": {
+            "row": 170.0,
+            "col": 143.0,
+            "z_m": 20.0
+          },
+          "rx": {
+            "row": 73.0,
+            "col": 232.0,
+            "z_m": 1.0
+          },
+          "blocking_building_id": 46,
+          "blocking_progress": 0.325092707046,
+          "candidates": [
+            {
+              "building_id": 46,
+              "building_component_id": 46,
+              "polygon_index": 0,
+              "corner_index": 0,
+              "corner": {
+                "row": 139.0,
+                "col": 172.0
+              },
+              "visible_from_current": true,
+              "silhouette_corner": false,
+              "accepted": false,
+              "reject_reason": "not_silhouette_tangent"
+            },
+            {
+              "building_id": 46,
+              "building_component_id": 46,
+              "polygon_index": 0,
+              "corner_index": 1,
+              "corner": {
+                "row": 123.0,
+                "col": 170.0
+              },
+              "visible_from_current": true,
+              "silhouette_corner": true,
+              "accepted": true,
+              "reject_reason": null,
+              "incoming_distance_px": 54.20332093147061,
+              "outgoing_distance_px": 79.64923100695951,
+              "forward_projection": 0.40173110213502594,
+              "turn_angle_rad": 0.3706993962748399,
+              "utd_loss_db": 50.773394712010926,
+              "incident_direction_rc": [
+                -0.8671055424707689,
+                0.498124460568314
+              ],
+              "outgoing_direction_rc": [
+                -0.6277524511897817,
+                0.7784130394753294
+              ],
+              "wedge_angle_rad": 4.836743974931451
+            },
+            {
+              "building_id": 46,
+              "building_component_id": 46,
+              "polygon_index": 0,
+              "corner_index": 2,
+              "corner": {
+                "row": 123.0,
+                "col": 182.0
+              },
+              "visible_from_current": false,
+              "silhouette_corner": false,
+              "accepted": false,
+              "reject_reason": "not_silhouette_tangent"
+            },
+            {
+              "building_id": 46,
+              "building_component_id": 46,
+              "polygon_index": 0,
+              "corner_index": 3,
+              "corner": {
+                "row": 123.0,
+                "col": 184.0
+              },
+              "visible_from_current": false,
+              "silhouette_corner": false,
+              "accepted": false,
+              "reject_reason": "not_silhouette_tangent"
+            },
+            {
+              "building_id": 46,
+              "building_component_id": 46,
+              "polygon_index": 0,
+              "corner_index": 4,
+              "corner": {
+                "row": 132.0,
+                "col": 184.0
+              },
+              "visible_from_current": false,
+              "silhouette_corner": false,
+              "accepted": false,
+              "reject_reason": "not_silhouette_tangent"
+            },
+            {
+              "building_id": 46,
+              "building_component_id": 46,
+              "polygon_index": 0,
+              "corner_index": 5,
+              "corner": {
+                "row": 133.0,
+                "col": 180.0
+              },
+              "visible_from_current": false,
+              "silhouette_corner": false,
+              "accepted": false,
+              "reject_reason": "not_silhouette_tangent"
+            },
+            {
+              "building_id": 46,
+              "building_component_id": 46,
+              "polygon_index": 0,
+              "corner_index": 6,
+              "corner": {
+                "row": 139.0,
+                "col": 180.0
+              },
+              "visible_from_current": true,
+              "silhouette_corner": true,
+              "accepted": true,
+              "reject_reason": null,
+              "incoming_distance_px": 48.27007354458868,
+              "outgoing_distance_px": 84.02380615040002,
+              "forward_projection": 0.363531448355453,
+              "turn_angle_rad": 0.20609940194683538,
+              "utd_loss_db": 53.586093906789856,
+              "incident_direction_rc": [
+                -0.6422198626104073,
+                0.7665204811801636
+              ],
+              "outgoing_direction_rc": [
+                -0.7854916722275356,
+                0.6188722266035128
+              ],
+              "wedge_angle_rad": 4.71238898038469,
+              "selected": true
+            }
+          ],
+          "selected_corner": {
+            "row": 139.0,
+            "col": 180.0
+          },
+          "selected_building_id": 46
+        },
+        {
+          "depth": 3,
+          "current": {
+            "row": 139.0,
+            "col": 180.0,
+            "z_m": 20.0
+          },
+          "rx": {
+            "row": 73.0,
+            "col": 232.0,
+            "z_m": 1.0
+          },
+          "blocking_building_id": 44,
+          "blocking_progress": 0.115384615385,
+          "candidates": [
+            {
+              "building_id": 44,
+              "building_component_id": 44,
+              "polygon_index": 0,
+              "corner_index": 0,
+              "corner": {
+                "row": 138.0,
+                "col": 192.0
+              },
+              "visible_from_current": true,
+              "silhouette_corner": true,
+              "accepted": false,
+              "reject_reason": "outgoing_reenters_blocking_building",
+              "incoming_distance_px": 12.041594578792296,
+              "outgoing_distance_px": 76.32168761236873,
+              "forward_projection": 0.09773371104815864
+            },
+            {
+              "building_id": 44,
+              "building_component_id": 44,
+              "polygon_index": 0,
+              "corner_index": 1,
+              "corner": {
+                "row": 131.0,
+                "col": 191.0
+              },
+              "visible_from_current": true,
+              "silhouette_corner": false,
+              "accepted": false,
+              "reject_reason": "not_silhouette_tangent"
+            },
+            {
+              "building_id": 44,
+              "building_component_id": 44,
+              "polygon_index": 0,
+              "corner_index": 2,
+              "corner": {
+                "row": 133.0,
+                "col": 186.0
+              },
+              "visible_from_current": true,
+              "silhouette_corner": false,
+              "accepted": false,
+              "reject_reason": "not_silhouette_tangent"
+            },
+            {
+              "building_id": 44,
+              "building_component_id": 44,
+              "polygon_index": 0,
+              "corner_index": 3,
+              "corner": {
+                "row": 123.0,
+                "col": 186.0
+              },
+              "visible_from_current": true,
+              "silhouette_corner": true,
+              "accepted": false,
+              "reject_reason": "incoming_blocked",
+              "incoming_distance_px": 17.08800749063506,
+              "outgoing_distance_px": 67.94115100585212,
+              "forward_projection": 0.19376770538243626
+            },
+            {
+              "building_id": 44,
+              "building_component_id": 44,
+              "polygon_index": 0,
+              "corner_index": 4,
+              "corner": {
+                "row": 123.0,
+                "col": 191.0
+              },
+              "visible_from_current": false,
+              "silhouette_corner": false,
+              "accepted": false,
+              "reject_reason": "not_silhouette_tangent"
+            },
+            {
+              "building_id": 44,
+              "building_component_id": 44,
+              "polygon_index": 0,
+              "corner_index": 5,
+              "corner": {
+                "row": 119.0,
+                "col": 191.0
+              },
+              "visible_from_current": false,
+              "silhouette_corner": false,
+              "accepted": false,
+              "reject_reason": "not_silhouette_tangent"
+            },
+            {
+              "building_id": 44,
+              "building_component_id": 44,
+              "polygon_index": 0,
+              "corner_index": 6,
+              "corner": {
+                "row": 119.0,
+                "col": 193.0
+              },
+              "visible_from_current": false,
+              "silhouette_corner": false,
+              "accepted": false,
+              "reject_reason": "not_silhouette_tangent"
+            },
+            {
+              "building_id": 44,
+              "building_component_id": 44,
+              "polygon_index": 0,
+              "corner_index": 7,
+              "corner": {
+                "row": 118.0,
+                "col": 200.0
+              },
+              "visible_from_current": false,
+              "silhouette_corner": false,
+              "accepted": false,
+              "reject_reason": "not_silhouette_tangent"
+            },
+            {
+              "building_id": 44,
+              "building_component_id": 44,
+              "polygon_index": 0,
+              "corner_index": 8,
+              "corner": {
+                "row": 120.0,
+                "col": 201.0
+              },
+              "visible_from_current": false,
+              "silhouette_corner": false,
+              "accepted": false,
+              "reject_reason": "not_silhouette_tangent"
+            },
+            {
+              "building_id": 44,
+              "building_component_id": 44,
+              "polygon_index": 0,
+              "corner_index": 9,
+              "corner": {
+                "row": 137.0,
+                "col": 201.0
+              },
+              "visible_from_current": false,
+              "silhouette_corner": false,
+              "accepted": false,
+              "reject_reason": "not_silhouette_tangent"
+            }
+          ],
+          "termination": "no_valid_corner"
+        }
+      ],
+      "first_blocking_building_id": 58,
+      "events": [
+        {
+          "depth": 0,
+          "A": {
+            "row": 253.0,
+            "col": 94.0,
+            "z_m": 20.0
+          },
+          "B": {
+            "row": 73.0,
+            "col": 232.0,
+            "z_m": 1.0
+          },
+          "E_star": {
+            "row": 194.0,
+            "col": 131.0,
+            "z_m": 20.0
+          },
+          "h_m": 0.0,
+          "d1_m": 69.6419413859206,
+          "d2_m": 157.61345120261785,
+          "nu": 0.13542923951942837,
+          "J_nu_db": 52.53959849742691,
+          "building_component_id": 58,
+          "event_type": "corner",
+          "wedge_angle_rad": 4.746356493063113,
+          "incident_angle_rad": 1.127783687178368,
+          "diffraction_angle_rad": 0.13542923951942837,
+          "corner_model": "canonical_utd_wedge",
+          "incident_direction_rc": [
+            -0.8471906271689309,
+            0.5312890373771262
+          ],
+          "outgoing_direction_rc": [
+            -0.7677009739762001,
+            0.6408082510049273
+          ]
+        },
+        {
+          "depth": 1,
+          "A": {
+            "row": 194.0,
+            "col": 131.0,
+            "z_m": 20.0
+          },
+          "B": {
+            "row": 73.0,
+            "col": 232.0,
+            "z_m": 1.0
+          },
+          "E_star": {
+            "row": 170.0,
+            "col": 143.0,
+            "z_m": 20.0
+          },
+          "h_m": 0.0,
+          "d1_m": 26.832815729997478,
+          "d2_m": 131.64345787011217,
+          "nu": 0.2787662945288707,
+          "J_nu_db": 49.73905960237251,
+          "building_component_id": 52,
+          "event_type": "corner",
+          "wedge_angle_rad": 4.649970170388732,
+          "incident_angle_rad": 1.0447299077981334,
+          "diffraction_angle_rad": 0.2787662945288707,
+          "corner_model": "canonical_utd_wedge",
+          "incident_direction_rc": [
+            -0.8944271909999159,
+            0.4472135954999579
+          ],
+          "outgoing_direction_rc": [
+            -0.7368387428390584,
+            0.6760685372440846
+          ]
+        },
+        {
+          "depth": 2,
+          "A": {
+            "row": 170.0,
+            "col": 143.0,
+            "z_m": 20.0
+          },
+          "B": {
+            "row": 73.0,
+            "col": 232.0,
+            "z_m": 1.0
+          },
+          "E_star": {
+            "row": 139.0,
+            "col": 180.0,
+            "z_m": 20.0
+          },
+          "h_m": 0.0,
+          "d1_m": 48.27007354458868,
+          "d2_m": 84.02380615040002,
+          "nu": 0.20609940194683538,
+          "J_nu_db": 53.586093906789856,
+          "building_component_id": 46,
+          "event_type": "corner",
+          "wedge_angle_rad": 4.71238898038469,
+          "incident_angle_rad": 2.4442018637200857,
+          "diffraction_angle_rad": 0.20609940194683538,
+          "corner_model": "canonical_utd_wedge",
+          "incident_direction_rc": [
+            -0.6422198626104073,
+            0.7665204811801636
+          ],
+          "outgoing_direction_rc": [
+            -0.7854916722275356,
+            0.6188722266035128
+          ]
+        }
+      ]
+    },
+    "auto": {
+      "mode": "owr-rd",
+      "loss_db": 73.47667905059095,
+      "signed_loss_db": -73.47667905059095,
+      "loss_magnitude_db": 73.47667905059095,
+      "termination": "no_obstacle_or_max_edges",
+      "is_los": false,
+      "dispatch_method": "owr-rd",
+      "fallback_from": null,
+      "edge_count": 3,
+      "corner_count": 0,
+      "corner_diagnostics": [],
+      "first_blocking_building_id": null,
+      "events": [
+        {
+          "depth": 0,
+          "A": {
+            "row": 253.0,
+            "col": 94.0,
+            "z_m": 20.0
+          },
+          "B": {
+            "row": 73.0,
+            "col": 232.0,
+            "z_m": 1.0
+          },
+          "E_star": {
+            "row": 97.0,
+            "col": 214.0,
+            "z_m": 18.92340087890625
+          },
+          "h_m": 15.410476207906502,
+          "d1_m": 196.81757814196257,
+          "d2_m": 34.94636317366912,
+          "nu": 13.669251275905347,
+          "J_nu_db": 35.58348715804233,
+          "building_component_id": 38,
+          "event_type": "rooftop",
+          "wedge_angle_rad": null,
+          "incident_angle_rad": null,
+          "diffraction_angle_rad": null,
+          "corner_model": null,
+          "incident_direction_rc": null,
+          "outgoing_direction_rc": null
+        },
+        {
+          "depth": 1,
+          "A": {
+            "row": 97.0,
+            "col": 214.0,
+            "z_m": 18.92340087890625
+          },
+          "B": {
+            "row": 73.0,
+            "col": 232.0,
+            "z_m": 1.0
+          },
+          "E_star": {
+            "row": 89.0,
+            "col": 220.0,
+            "z_m": 15.520299911499023
+          },
+          "h_m": 2.5713659922281895,
+          "d1_m": 10.563195359093195,
+          "d2_m": 24.71515950828314,
+          "nu": 4.5674874408280095,
+          "J_nu_db": 26.028677258160116,
+          "building_component_id": 35,
+          "event_type": "rooftop",
+          "wedge_angle_rad": null,
+          "incident_angle_rad": null,
+          "diffraction_angle_rad": null,
+          "corner_model": null,
+          "incident_direction_rc": null,
+          "outgoing_direction_rc": null
+        },
+        {
+          "depth": 2,
+          "A": {
+            "row": 89.0,
+            "col": 220.0,
+            "z_m": 15.520299911499023
+          },
+          "B": {
+            "row": 73.0,
+            "col": 232.0,
+            "z_m": 1.0
+          },
+          "E_star": {
+            "row": 79.0,
+            "col": 227.0,
+            "z_m": 7.012499809265137
+          },
+          "h_m": 0.3543423191084134,
+          "d1_m": 14.878933516202393,
+          "d2_m": 9.856477766241515,
+          "nu": 0.7031929124932101,
+          "J_nu_db": 11.864514634388494,
+          "building_component_id": 28,
+          "event_type": "rooftop",
+          "wedge_angle_rad": null,
+          "incident_angle_rad": null,
+          "diffraction_angle_rad": null,
+          "corner_model": null,
+          "incident_direction_rc": null,
+          "outgoing_direction_rc": null
+        }
+      ]
+    }
+  },
+  "mode_records": {
+    "auto": {
+      "runtime_seconds": 11.262539500137791,
+      "mean_diffraction_loss_db": -23.655330657958984,
+      "min_diffraction_loss_db": -97.6466293334961,
+      "max_abs_diffraction_loss_db": 97.6466293334961,
+      "nlos_ratio": 0.633575439453125,
+      "mean_edge_count": 0.6818695068359375,
+      "max_edge_count": 3,
+      "mae_vs_ground_truth_db": 11.105743787367828,
+      "rmse_vs_ground_truth_db": 14.981894841647373,
+      "max_abs_error_vs_ground_truth_db": 81.93161010742188,
+      "bias_vs_ground_truth_db": 9.40887483523693,
+      "los_rmse_vs_ground_truth_db": 18.33134348182799,
+      "nlos_rmse_vs_ground_truth_db": 12.646144911552772,
+      "prediction_min_db": -169.39227294921875,
+      "raw_prediction_min_db": -186.17431640625,
+      "prediction_below_ground_truth_min_ratio": 0.0009613037109375,
+      "corner_count_mean": 0.0,
+      "corner_count_max": 0,
+      "cd_validity_ratio": 0.0,
+      "cd_validity_nlos_ratio": 0.0,
+      "unresolved_nlos_ratio": 0.0,
+      "fallback_to_rd_ratio": 0.0,
+      "resolved_method_counts": {
+        "los-fspl": 24014,
+        "owr-rd": 41522
+      }
+    }
+  },
+  "mode_comparisons": {},
+  "map_stats": {
+    "building_height_min_m": 7.012499809265137,
+    "building_height_max_m": 19.387500762939453,
+    "nlos_ratio": 0.633575439453125,
+    "fspl_min_db": -92.88558959960938,
+    "fspl_max_db": -68.90421295166016,
+    "selected_diffraction_min_db": -97.6466293334961,
+    "selected_diffraction_max_abs_db": 97.6466293334961,
+    "selected_prior_max_db": -68.90421295166016,
+    "selected_evaluated_prior_min_db": -169.39227294921875,
+    "ground_truth_path_loss_min_db": -160.0,
+    "ground_truth_path_loss_max_db": -40.0
+  },
+  "fixed_color_limits": {
+    "building_height_m": [
+      0.0,
+      19.8
+    ],
+    "fspl_db": [
+      -110.0,
+      -40.0
+    ],
+    "diffraction_loss_db": [
+      -50.0,
+      0.0
+    ],
+    "physics_prior_db": [
+      -170.0,
+      -40.0
+    ],
+    "ground_truth_path_loss_db": [
+      -160.0,
+      -40.0
+    ]
+  },
+  "runtime_seconds": 14.40526879997924
+}

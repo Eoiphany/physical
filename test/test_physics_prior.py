@@ -205,6 +205,17 @@ def test_auto_falls_back_from_invalid_cd_to_rd_for_nlos() -> None:
     assert not maps.unresolved_nlos_mask[7, 13]
 
 
+def test_auto_extracts_raster_footprint_polygon_with_numpy_2() -> None:
+    """Raster image-mask datasets must support auto CD polygon extraction."""
+
+    height = np.zeros((15, 15), dtype=np.float32)
+    height[5:9, 4:12] = 10.0
+    tx = TxRecord(x_m=1.0, y_m=7.0, z_m=1.5)
+    maps = compute_physics_maps(height, tx, 2.5e9, 1.5, 1.0, diffraction_mode="auto")
+    assert not maps.los_mask[7, 13]
+    assert maps.diffraction_loss_db[7, 13] < 0.0
+    assert not maps.unresolved_nlos_mask[7, 13]
+
 def test_owr_cd_rejects_same_building_wall_walk() -> None:
     """验证OWR-CD从真实footprint候选corner生成单向、去重且可推进的递归链。"""
 

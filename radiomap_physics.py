@@ -610,7 +610,12 @@ def _rdp_simplify(points: np.ndarray, epsilon: float) -> np.ndarray:
     if segment_norm == 0.0:
         distances = np.linalg.norm(points - start, axis=1)
     else:
-        distances = np.abs(np.cross(segment, points - start)) / segment_norm
+        # Compute the 2-D scalar cross product explicitly. NumPy 2.0
+        # removed the implicit 2-D vector cross-product result from
+        # ``np.cross``; contour coordinates are two-dimensional here.
+        offsets = points - start
+        cross_z = segment[0] * offsets[:, 1] - segment[1] * offsets[:, 0]
+        distances = np.abs(cross_z) / segment_norm
     index = int(np.argmax(distances))
     if float(distances[index]) <= epsilon:
         return np.vstack((start, end))

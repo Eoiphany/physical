@@ -68,7 +68,22 @@ def _configure_fonts() -> tuple[str, str]:
     return chinese, western
 
 
-def _save_arrays(output_dir: Path, maps: PhysicsMaps) -> None:
+def _building_evaluated_prior(
+    height_map_m: np.ndarray,
+    physics_prior_db: np.ndarray,
+    building_min_db: float,
+) -> np.ndarray:
+    """Apply the protocol's building-interior display/evaluation rule.
+
+    The raw solver output remains ``FSPL + diffraction``.  Building pixels are
+    replaced only in this derived evaluation map, so the physical invariant is
+    still auditable from ``physics_prior_db`` and ``diffraction_loss_db``.
+    """
+
+    return np.where(np.asarray(height_map_m) > 0.0, float(building_min_db), physics_prior_db).astype(np.float32)
+
+
+def _save_arrays(output_dir: Path, maps: PhysicsMaps, building_evaluated_prior_db: np.ndarray) -> None:
     """保存全部用户要求的物理中间量，使用稳定文件名和float32/int32/bool dtype。"""
 
     array_dir = output_dir / "physics_arrays"
@@ -90,6 +105,8 @@ def _save_arrays(output_dir: Path, maps: PhysicsMaps) -> None:
         "physics_prior_db": maps.physics_prior_db,
         "physics_prior_paper_pl_db": maps.physics_prior_db,
         "physics_prior_loss_magnitude_db": -maps.physics_prior_db,
+        "physics_prior_evaluation_db": building_evaluated_prior_db,
+        "physics_prior_evaluation_loss_magnitude_db": -building_evaluated_prior_db,
         "edge_count": maps.edge_count,
         "corner_count": maps.corner_count,
         "unresolved_nlos_mask": maps.unresolved_nlos_mask,
@@ -115,6 +132,7 @@ def _imshow(ax, array: np.ndarray, title: str, vmin: float, vmax: float, cmap: s
 def render_comparison(
     height_map_m: np.ndarray,
     maps: PhysicsMaps,
+    evaluated_prior_db: np.ndarray,
     ground_truth_path_loss_db: np.ndarray,
     tx_x: float,
     tx_row: float,
@@ -129,7 +147,7 @@ def render_comparison(
     _imshow(axes[0], height_map_m, "Building Height (m)", *color_limits["building_height_m"])
     _imshow(axes[1], maps.fspl_db, "FSPL / signed PL (dB)", *color_limits["fspl_db"])
     _imshow(axes[2], maps.diffraction_loss_db, "Diffraction / signed loss (dB)", *color_limits["diffraction_loss_db"])
-    _imshow(axes[3], maps.physics_prior_db, "FSPL + Diffraction / signed PL (dB)", *color_limits["physics_prior_db"])
+    _imshow(axes[3], evaluated_prior_db, "FSPL + Diffraction / evaluated signed PL (dB)", *color_limits["physics_prior_db"])
     _imshow(axes[4], ground_truth_path_loss_db, "Ground Truth / signed PL (dB)", *color_limits["ground_truth_path_loss_db"])
     for ax in axes:
         ax.plot(tx_x, tx_row, marker="+", color="red", markersize=8, markeredgewidth=1.5)
@@ -428,6 +446,7 @@ def render_mode_comparison(
     ground_truth_path_loss_db: np.ndarray,
     fspl_db: np.ndarray,
     maps_by_mode: dict[str, PhysicsMaps],
+    evaluated_prior_by_mode: dict[str, np.ndarray],
     tx_x: float,
     tx_row: float,
     color_limits: dict[str, list[float]],
@@ -442,13 +461,13 @@ def render_mode_comparison(
         ("Ground Truth / signed PL (dB)", ground_truth_path_loss_db, "ground_truth_path_loss_db"),
         ("FSPL / none / signed PL (dB)", fspl_db, "fspl_db"),
         ("Single Diffraction / signed (dB)", maps_by_mode["single"].diffraction_loss_db, "diffraction_loss_db"),
-        ("FSPL + Single / signed PL (dB)", maps_by_mode["single"].physics_prior_db, "physics_prior_db"),
+        ("FSPL + Single / evaluated signed PL (dB)", evaluated_prior_by_mode["single"], "physics_prior_db"),
         ("OWR-RD Diffraction / signed (dB)", maps_by_mode["owr-rd"].diffraction_loss_db, "diffraction_loss_db"),
-        ("FSPL + OWR-RD / signed PL (dB)", maps_by_mode["owr-rd"].physics_prior_db, "physics_prior_db"),
+        ("FSPL + OWR-RD / evaluated signed PL (dB)", evaluated_prior_by_mode["owr-rd"], "physics_prior_db"),
         ("Deygout Diffraction / signed (dB)", maps_by_mode["deygout"].diffraction_loss_db, "diffraction_loss_db"),
-        ("FSPL + Deygout / signed PL (dB)", maps_by_mode["deygout"].physics_prior_db, "physics_prior_db"),
+        ("FSPL + Deygout / evaluated signed PL (dB)", evaluated_prior_by_mode["deygout"], "physics_prior_db"),
         ("OWR-CD Diffraction / signed (dB)", maps_by_mode["owr-cd"].diffraction_loss_db, "diffraction_loss_db"),
-        ("FSPL + OWR-CD / signed PL (dB)", maps_by_mode["owr-cd"].physics_prior_db, "physics_prior_db"),
+        ("FSPL + OWR-CD / evaluated signed PL (dB)", evaluated_prior_by_mode["owr-cd"], "physics_prior_db"),
     ]
     fig, axes = plt.subplots(3, 4, figsize=(17, 13), constrained_layout=True)
     for ax, (title, array, limit_key) in zip(axes.flat, panels):
@@ -462,10 +481,14 @@ def render_mode_comparison(
     plt.close(fig)
 
 
-def _mode_metrics(maps: PhysicsMaps, ground_truth_path_loss_db: np.ndarray) -> dict[str, float]:
+def _mode_metrics(
+    maps: PhysicsMaps,
+    ground_truth_path_loss_db: np.ndarray,
+    evaluated_prior_db: np.ndarray,
+) -> dict[str, float]:
     """计算单mode的runtime之外的diffraction统计和与GT的误差。"""
 
-    error = maps.physics_prior_db.astype(np.float64) - ground_truth_path_loss_db.astype(np.float64)
+    error = evaluated_prior_db.astype(np.float64) - ground_truth_path_loss_db.astype(np.float64)
     los = maps.los_mask
     nlos = ~los
     ground_truth_min = float(np.min(ground_truth_path_loss_db))
@@ -482,8 +505,9 @@ def _mode_metrics(maps: PhysicsMaps, ground_truth_path_loss_db: np.ndarray) -> d
         "bias_vs_ground_truth_db": float(np.mean(error)),
         "los_rmse_vs_ground_truth_db": float(np.sqrt(np.mean(error[los] ** 2))) if np.any(los) else float("nan"),
         "nlos_rmse_vs_ground_truth_db": float(np.sqrt(np.mean(error[nlos] ** 2))) if np.any(nlos) else float("nan"),
-        "prediction_min_db": float(np.min(maps.physics_prior_db)),
-        "prediction_below_ground_truth_min_ratio": float(np.mean(maps.physics_prior_db < ground_truth_min)),
+        "prediction_min_db": float(np.min(evaluated_prior_db)),
+        "raw_prediction_min_db": float(np.min(maps.physics_prior_db)),
+        "prediction_below_ground_truth_min_ratio": float(np.mean(evaluated_prior_db < ground_truth_min)),
         "corner_count_mean": float(np.mean(maps.corner_count)),
         "corner_count_max": int(np.max(maps.corner_count)),
         "cd_validity_ratio": float(np.mean(maps.cd_validity_mask)),
@@ -591,6 +615,7 @@ def main() -> None:
     max_corner_depth_raw = config["physics_prior"].get("max_corner_depth")
     max_corner_depth = None if max_corner_depth_raw is None else int(max_corner_depth_raw)
     color_limits = config["visualization"]["fixed_color_limits"]
+    building_min_db = float(config["dataset_labels"]["png_gray_mapping"]["pathgain_db_range"][0])
 
     print(f"[start] scenes={scene_ids} tx_ids={tx_ids} modes={modes} data_root={Path(args.data_root).resolve()}", flush=True)
     print(f"[config] f={frequency_hz/1e9:.3f} GHz, resolution={resolution_m:.3f} m, rx_height={rx_height_m:.3f} m, fonts={chinese_font}/{western_font}", flush=True)
@@ -612,6 +637,7 @@ def main() -> None:
             np.save(sample_dir / "ground_truth_pathloss_magnitude_db.npy", ground_truth_magnitude)
             auto_method = select_diffraction_method(scene.height_map_m, tx, rx_height_m)
             maps_by_mode: dict[str, PhysicsMaps] = {}
+            evaluated_prior_by_mode: dict[str, np.ndarray] = {}
             mode_records: dict[str, dict] = {}
             for mode in modes:
                 mode_started = time.perf_counter()
@@ -629,11 +655,13 @@ def main() -> None:
                     max_corner_depth=max_corner_depth,
                 )
                 maps_by_mode[mode] = maps
+                evaluated_prior = _building_evaluated_prior(scene.height_map_m, maps.physics_prior_db, building_min_db)
+                evaluated_prior_by_mode[mode] = evaluated_prior
                 mode_dir = sample_dir / "modes" / mode if args.compare_all_modes else sample_dir
-                _save_arrays(mode_dir, maps)
+                _save_arrays(mode_dir, maps, evaluated_prior)
                 mode_records[mode] = {
                     "runtime_seconds": time.perf_counter() - mode_started,
-                    **_mode_metrics(maps, ground_truth),
+                    **_mode_metrics(maps, ground_truth, evaluated_prior),
                 }
                 (mode_dir / "mode_metadata.json").write_text(
                     json.dumps({"mode": mode, **mode_records[mode]}, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -678,6 +706,7 @@ def main() -> None:
                     ground_truth,
                     fspl_db,
                     maps_by_mode,
+                    evaluated_prior_by_mode,
                     tx.x_m,
                     tx_row,
                     color_limits,
@@ -711,6 +740,7 @@ def main() -> None:
                 actual_color_limits = render_comparison(
                     scene.height_map_m,
                     maps,
+                    evaluated_prior_by_mode[modes[0]],
                     ground_truth,
                     tx.x_m,
                     tx_row,
@@ -797,6 +827,12 @@ def main() -> None:
                     "ground_truth_pathgain_and_paper_pl": "negative dB, PL=(P_Rx)_dB-(P_Tx)_dB",
                     "optional_magnitude_arrays": "loss_magnitude_db = -signed_db",
                 },
+                "building_interior_evaluation_rule": {
+                    "mask": "height_map_m > 0",
+                    "replacement_signed_pathgain_db": building_min_db,
+                    "raw_solver_arrays_unchanged": True,
+                    "evaluation_array": "physics_prior_evaluation_db.npy",
+                },
                 "rx_height_m": rx_height_m,
                 "debug_rx_row_col": list(selected_rx),
                 "debug_status": "NLOS" if not selected_solution.is_los else "LOS",
@@ -812,6 +848,7 @@ def main() -> None:
                     "selected_diffraction_min_db": float(maps_by_mode[modes[0]].diffraction_loss_db.min()),
                     "selected_diffraction_max_abs_db": float(np.max(np.abs(maps_by_mode[modes[0]].diffraction_loss_db))),
                     "selected_prior_max_db": float(maps_by_mode[modes[0]].physics_prior_db.max()),
+                    "selected_evaluated_prior_min_db": float(evaluated_prior_by_mode[modes[0]].min()),
                     "ground_truth_path_loss_min_db": float(ground_truth.min()),
                     "ground_truth_path_loss_max_db": float(ground_truth.max()),
                 },
