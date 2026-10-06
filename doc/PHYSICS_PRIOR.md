@@ -169,6 +169,12 @@ frequency, wavelength, path sampling step and piecewise knife-edge function `J(n
 | `owr-cd` | **OWR-CD, One-Way Recursive Corner Diffraction** | footprint corner chain toward Rx | canonical material-independent UTD wedge contributions |
 | `deygout` | standard two-sided Deygout construction | both `A -> E*` and `E* -> B` | sum of selected recursive `J(nu)` contributions |
 
+During the temporary PDF-compatibility phase, the public `owr-cd` and `auto`
+CD branch use the PDF-compatible final-Rx UTD evaluation. The geometry-first
+adjacent-segment UTD implementation remains available only as
+`solve_owr_cd_local_segment_diffraction` for diagnostics and is not selected
+by the public dispatcher.
+
 With `--diffraction-method auto`, LOS pixels use FSPL only. Each NLoS pixel is
 dispatched independently using the configured Tx/Rx/building-height rule, with
 the dominant root blocking roof as the local height reference: low,

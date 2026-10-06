@@ -1664,6 +1664,42 @@ def solve_owr_cd_local_segment_diffraction(
     )
 
 
+def solve_owr_cd_pdf_diffraction(
+    height_map_m: np.ndarray,
+    tx: TxRecord,
+    rx_row: int,
+    rx_col: int,
+    rx_height_m: float,
+    resolution_m: float,
+    wavelength_m: float,
+    footprint_polygons: list[Any] | dict[int, list[np.ndarray]] | None,
+    component_labels: np.ndarray | None = None,
+    max_corner_depth: int | None = None,
+) -> DiffractionSolution:
+    """Use the PDF-compatible OWR-CD algorithm for the public CD mode.
+
+    The PDF reference evaluates each accepted corner's canonical UTD wedge
+    against the final Rx while the one-way corner chain is constructed.  The
+    local adjacent-segment UTD variant remains available only through
+    ``solve_owr_cd_local_segment_diffraction`` for diagnostics; it is not the
+    public ``owr-cd`` algorithm in this temporary compatibility phase.
+    """
+
+    return _solve_owr_cd_diffraction(
+        height_map_m,
+        tx,
+        rx_row,
+        rx_col,
+        rx_height_m,
+        resolution_m,
+        wavelength_m,
+        footprint_polygons,
+        component_labels,
+        max_corner_depth,
+        local_segment_losses=False,
+    )
+
+
 def _solve_single_diffraction(
     height_map_m: np.ndarray,
     tx: TxRecord,
@@ -1856,7 +1892,7 @@ def _solve_auto_diffraction(
         reference_building_height_m=float(root.events[0].edge.z_m) if root.events else None,
     )
     if selected_method == "owr-cd":
-        corner = _solve_owr_cd_diffraction(
+        corner = solve_owr_cd_pdf_diffraction(
             height_map_m,
             tx,
             rx_row,
@@ -1950,7 +1986,7 @@ def solve_diffraction(
         return _solve_owr_rd_diffraction(height_map_m, tx, rx_row, rx_col, rx_height_m, resolution_m, wavelength_m, path_sampling_step_m, component_labels)
     if mode == "deygout":
         return _solve_deygout_diffraction(height_map_m, tx, rx_row, rx_col, rx_height_m, resolution_m, wavelength_m, path_sampling_step_m, component_labels)
-    return _solve_owr_cd_diffraction(
+    return solve_owr_cd_pdf_diffraction(
         height_map_m,
         tx,
         rx_row,

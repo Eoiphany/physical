@@ -26,6 +26,7 @@ from radiomap_physics import (
     propagation_profile,
     solve_diffraction,
     solve_owr_cd_local_segment_diffraction,
+    solve_owr_cd_pdf_diffraction,
     select_diffraction_method,
 )
 from run_physics_prior import _bilinear_interpolate
@@ -345,6 +346,31 @@ def test_local_segment_cd_uses_adjacent_corner_targets():
     assert solution.events[0].b == solution.events[1].edge
     assert solution.events[1].b.row == 18.0
     assert solution.events[1].b.col == 40.0
+
+
+def test_public_owr_cd_uses_pdf_compatible_algorithm():
+    """The public CD mode must remain the PDF-compatible implementation."""
+
+    height = np.zeros((50, 50), dtype=np.float32)
+    height[28:34, 15:22] = 25.0
+    height[28:34, 23:32] = 25.0
+    polygons = [
+        {"coordinates_xy": [[15.0, 28.0], [22.0, 28.0], [22.0, 34.0], [15.0, 34.0]]},
+        {"coordinates_xy": [[23.0, 28.0], [32.0, 28.0], [32.0, 34.0], [23.0, 34.0]]},
+    ]
+    tx = TxRecord(x_m=2.0, y_m=4.0, z_m=1.5)
+    wavelength = 299792458.0 / 3.5e9
+    public = solve_diffraction(
+        height, tx, 18, 40, "owr-cd", 1.5, 1.0, wavelength,
+        footprint_polygons=polygons,
+    )
+    pdf_compatible = solve_owr_cd_pdf_diffraction(
+        height, tx, 18, 40, 1.5, 1.0, wavelength, polygons,
+    )
+    assert public.termination == pdf_compatible.termination
+    assert public.is_los == pdf_compatible.is_los
+    np.testing.assert_allclose(public.loss_db, pdf_compatible.loss_db, rtol=0.0, atol=1e-12)
+    assert [event.component_id for event in public.events] == [event.component_id for event in pdf_compatible.events]
 
 
 def test_owr_cd_case_d_rejects_one_silhouette_and_accepts_another():

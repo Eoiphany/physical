@@ -1061,6 +1061,7 @@ def main() -> None:
                 "resolved_diffraction_method": selected_method,
                 "compare_all_modes": args.compare_all_modes,
                 "executed_methods": modes,
+                "owr_cd_public_implementation": "pdf-compatible-final-rx-utd",
                 "auto_selected_method": "per-nlos-rx",
                 "auto_height_method_hint": auto_method,
                 "resolved_method_counts": {
