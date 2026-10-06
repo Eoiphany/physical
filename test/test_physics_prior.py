@@ -25,8 +25,10 @@ from radiomap_physics import (
     loss_magnitude_to_paper_pl_db,
     propagation_profile,
     solve_diffraction,
+    solve_owr_cd_local_segment_diffraction,
     select_diffraction_method,
 )
+from run_physics_prior import _bilinear_interpolate
 
 
 def test_fspl_uses_3d_distance() -> None:
@@ -42,6 +44,20 @@ def test_fspl_uses_3d_distance() -> None:
     expected = 20.0 * np.log10(4.0 * np.pi * distance / wavelength)
     np.testing.assert_allclose(result[0, 1], -expected, rtol=1e-6, atol=1e-6)
     assert result[0, 1] < 0.0
+
+
+def test_fspl_accepts_per_pixel_absolute_rx_heights() -> None:
+    """Terrain-relative datasets can supply an absolute Rx-height grid."""
+
+    height = np.zeros((1, 2), dtype=np.float32)
+    tx = TxRecord(x_m=0.0, y_m=0.0, z_m=4.0)
+    rx_heights = np.array([[1.5, 11.5]], dtype=np.float64)
+    result = free_space_path_loss_db(height, tx, 3.5e9, rx_heights, 1.0)
+    wavelength = 299792458.0 / 3.5e9
+    d0 = max(1.0, abs(1.5 - 4.0))
+    d1 = np.sqrt(1.0 + (11.5 - 4.0) ** 2)
+    np.testing.assert_allclose(result[0, 0], -20.0 * np.log10(4.0 * np.pi * d0 / wavelength))
+    np.testing.assert_allclose(result[0, 1], -20.0 * np.log10(4.0 * np.pi * d1 / wavelength))
 
 
 def test_no_obstacle_is_los_and_zero_diffraction() -> None:
@@ -309,6 +325,28 @@ def test_owr_cd_case_c_recurses_only_to_next_building():
     assert len(set(event.component_id for event in solution.events)) == len(solution.events)
 
 
+def test_local_segment_cd_uses_adjacent_corner_targets():
+    """Local-segment UTD must use C1->C2, not C1->Rx, for the first corner."""
+
+    height = np.zeros((50, 50), dtype=np.float32)
+    height[28:34, 15:22] = 25.0
+    height[28:34, 23:32] = 25.0
+    polygons = [
+        {"coordinates_xy": [[15.0, 28.0], [22.0, 28.0], [22.0, 34.0], [15.0, 34.0]]},
+        {"coordinates_xy": [[23.0, 28.0], [32.0, 28.0], [32.0, 34.0], [23.0, 34.0]]},
+    ]
+    solution = solve_owr_cd_local_segment_diffraction(
+        height, TxRecord(x_m=2.0, y_m=4.0, z_m=1.5), 18, 40,
+        1.5, 1.0, 299792458.0 / 3.5e9,
+        polygons,
+    )
+    assert solution.termination == "rx_visible"
+    assert len(solution.events) == 2
+    assert solution.events[0].b == solution.events[1].edge
+    assert solution.events[1].b.row == 18.0
+    assert solution.events[1].b.col == 40.0
+
+
 def test_owr_cd_case_d_rejects_one_silhouette_and_accepts_another():
     """Case D: candidates on the same blocker are tested independently."""
 
@@ -325,10 +363,53 @@ def test_owr_cd_case_d_rejects_one_silhouette_and_accepts_another():
     assert any(candidate.get("selected") for candidate in candidates)
     assert solution.termination == "rx_visible"
 
+
+def test_bilinear_interpolation_preserves_samples_and_four_corners():
+    """The USC-style completion is bilinear on a rectangular four-corner cell."""
+
+    values = np.zeros((3, 3), dtype=np.float32)
+    values[0, 0], values[0, 2] = 0.0, 20.0
+    values[2, 0], values[2, 2] = 10.0, 30.0
+    samples = np.zeros_like(values, dtype=bool)
+    samples[0, 0] = samples[0, 2] = samples[2, 0] = samples[2, 2] = True
+    result = _bilinear_interpolate(values, samples)
+    np.testing.assert_allclose(result, [[0.0, 10.0, 20.0], [5.0, 15.0, 25.0], [10.0, 20.0, 30.0]])
+    np.testing.assert_array_equal(result[samples], values[samples])
+
+
+def test_sparse_rx_mask_does_not_claim_unobserved_zero_diffraction():
+    """Only sampled Rx pixels run diffraction; other pixels are completed later."""
+
+    height = np.zeros((20, 20), dtype=np.float32)
+    height[5:10, 5:10] = 25.0
+    polygon = {"coordinates_xy": [[5.0, 5.0], [10.0, 5.0], [10.0, 10.0], [5.0, 10.0]]}
+    sampled = np.zeros_like(height, dtype=bool)
+    sampled[2, 12] = True
+    maps = compute_physics_maps(
+        height,
+        TxRecord(x_m=2.0, y_m=7.0, z_m=1.5),
+        3.5e9,
+        1.5,
+        1.0,
+        diffraction_mode="owr-cd",
+        footprint_polygons=[polygon],
+        observation_mask=sampled,
+    )
+    assert np.array_equal(maps.observation_mask, sampled)
+    # Sparse sampling must not replace a geometrically LOS pixel with an
+    # interpolated field; LOS remains exact FSPL everywhere.
+    assert maps.resolved_method_map[0, 0] == "los-fspl"
+    assert maps.diffraction_loss_db[0, 0] == 0.0
+    assert maps.resolved_method_map[2, 13] == "interpolated-rx"
+    assert not maps.los_mask[2, 13]
+    assert maps.resolved_method_map[2, 12] == "owr-cd"
+    assert maps.diffraction_loss_db[2, 12] < 0.0
+
 if __name__ == "__main__":
     # 在无pytest的离线环境中仍可直接用本项目约定的uv run命令执行最小测试集。
     tests = [
         test_fspl_uses_3d_distance,
+        test_fspl_accepts_per_pixel_absolute_rx_heights,
         test_no_obstacle_is_los_and_zero_diffraction,
         test_dominant_obstruction_and_3d_d1_d2,
         test_profile_obstacle_above_los_is_the_only_candidate,
@@ -347,6 +428,8 @@ if __name__ == "__main__":
         test_owr_cd_empty_rx_pixel_can_still_be_nlos,
         test_owr_cd_case_d_rejects_one_silhouette_and_accepts_another,
         test_owr_cd_accepts_one_valid_silhouette_corner,
+        test_bilinear_interpolation_preserves_samples_and_four_corners,
+        test_sparse_rx_mask_does_not_claim_unobserved_zero_diffraction,
     ]
     for test in tests:
         test()

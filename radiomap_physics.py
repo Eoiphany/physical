@@ -94,6 +94,9 @@ class SceneData:
     height_map_m: np.ndarray
     polygons: list[dict[str, Any]]
     tx_records: list[TxRecord]
+    # Optional finite Rx locations used to generate an interpolated pmap.
+    # This is evaluation metadata only and never changes the physics solver.
+    rx_observation_mask: np.ndarray | None = None
 
 
 @dataclass
@@ -145,6 +148,10 @@ class PhysicsMaps:
     resolved_method_map: np.ndarray
     fallback_to_rd_mask: np.ndarray
     mode: str = "single"
+    # Pixels where the diffraction solver was intentionally evaluated.  This
+    # is a sparse Rx mask for image-mask datasets, or all True for the normal
+    # dense-grid mode.  Unobserved pixels are not zero-diffraction evidence.
+    observation_mask: np.ndarray | None = None
 
 
 @dataclass(frozen=True)
@@ -388,7 +395,16 @@ def load_scene(data_root: str | Path, scene_id: str, config: dict[str, Any]) -> 
         tx_row, tx_col = tx_pixels.astype(np.float64).mean(axis=0)
         tx_height_m = float(config["scene"]["tx_height_m"])
         tx_records = [TxRecord(float(tx_col), float(height_px - 1 - tx_row), tx_height_m, building_height_m)]
-        return SceneData(str(scene_id), height_map, [], tx_records)
+        rx_mask = None
+        rx_template = data.get("rx_map_template")
+        if rx_template:
+            rx_path = root / _format_data_template(str(rx_template), str(scene_id))
+            if rx_path.exists():
+                rx_gray = _load_image_array(rx_path)
+                if rx_gray.shape != (height_px, width_px):
+                    raise ValueError(f"Image-mask Rx scene {scene_id} has unexpected shape: {rx_gray.shape}")
+                rx_mask = rx_gray >= float(data.get("rx_mask_threshold", 1))
+        return SceneData(str(scene_id), height_map, [], tx_records, rx_mask)
 
     if data_format == "urbanradio3d_directory":
         polygon_path = root / _format_data_template(str(data["building_path_template"]), str(scene_id))
@@ -480,14 +496,15 @@ def free_space_path_loss_db(
     height_map_m: np.ndarray,
     tx: TxRecord,
     frequency_hz: float,
-    rx_height_m: float,
+    rx_height_m: float | np.ndarray,
     resolution_m: float,
     speed_of_light_m_per_s: float = 299792458.0,
 ) -> np.ndarray:
     """按三维Tx-Rx欧氏距离计算每个像素的signed FSPL，返回负dB的[H,W]数组。
 
-    height_map_m只用于检查输入尺寸；Rx为每个像素的固定绝对高度rx_height_m，不把建筑高度加到Rx
-    上，因为RadioMap3DSeer的接收像素代表地面接收位置。距离为sqrt(dx²+dy²+dz²)。
+    height_map_m只用于检查输入尺寸。rx_height_m可以是所有像素共享的绝对高度，
+    也可以是与地图同形状的逐像素绝对Rx高度（例如PPData5D的相对terrain高度层）。
+    距离为sqrt(dx²+dy²+dz²)。
     """
 
     height_map_m = np.asarray(height_map_m, dtype=np.float64)
@@ -495,7 +512,15 @@ def free_space_path_loss_db(
     tx_row = float(height_map_m.shape[0] - 1) - tx.y_m
     dx_m = (cols - tx.x_m) * resolution_m
     dy_m = (rows - tx_row) * resolution_m
-    dz_m = float(rx_height_m) - tx.z_m
+    rx_height_array = np.asarray(rx_height_m, dtype=np.float64)
+    if rx_height_array.ndim == 0:
+        dz_m = float(rx_height_array) - tx.z_m
+    elif rx_height_array.shape == height_map_m.shape:
+        dz_m = rx_height_array - tx.z_m
+    else:
+        raise ValueError(
+            f"rx_height_m must be scalar or shape {height_map_m.shape}, got {rx_height_array.shape}"
+        )
     distance_m = np.sqrt(dx_m * dx_m + dy_m * dy_m + dz_m * dz_m)
     # At a 2D proxy Tx/Rx pixel both heights may be equal, making d=0.  The
     # continuous FSPL equation is undefined there; use one declared pixel as
@@ -511,7 +536,7 @@ def free_space_path_loss_magnitude_db(
     height_map_m: np.ndarray,
     tx: TxRecord,
     frequency_hz: float,
-    rx_height_m: float,
+    rx_height_m: float | np.ndarray,
     resolution_m: float,
     speed_of_light_m_per_s: float = 299792458.0,
 ) -> np.ndarray:
@@ -965,6 +990,7 @@ def _first_blocking_polygon(
     component_to_polygons: dict[int, list[np.ndarray]],
     current: np.ndarray,
     target: np.ndarray,
+    component_polygon_bboxes: dict[int, list[tuple[np.ndarray, np.ndarray]]] | None = None,
 ) -> tuple[int | None, float | None]:
     """Find the first actual footprint interior hit along CurrentPoint -> Rx.
 
@@ -976,7 +1002,13 @@ def _first_blocking_polygon(
     best_component: int | None = None
     best_parameter: float | None = None
     for component_id in sorted(component_to_polygons):
-        for polygon in component_to_polygons[component_id]:
+        for polygon_index, polygon in enumerate(component_to_polygons[component_id]):
+            if component_polygon_bboxes is not None:
+                polygon_min, polygon_max = component_polygon_bboxes[component_id][polygon_index]
+                segment_min = np.minimum(current, target) - 1e-9
+                segment_max = np.maximum(current, target) + 1e-9
+                if not (np.all(segment_max >= polygon_min) and np.all(segment_min <= polygon_max)):
+                    continue
             entry = _segment_entry_parameter(current, target, polygon)
             if entry is None:
                 continue
@@ -1172,11 +1204,23 @@ def _segment_bbox_may_hit(a: np.ndarray, b: np.ndarray, polygon: np.ndarray) -> 
     return bool(np.all(segment_max >= polygon_min) and np.all(segment_min <= polygon_max))
 
 
-def _segment_hits_any_polygon(a: np.ndarray, b: np.ndarray, polygons: list[np.ndarray]) -> bool:
+def _segment_hits_any_polygon(
+    a: np.ndarray,
+    b: np.ndarray,
+    polygons: list[np.ndarray],
+    polygon_bboxes: list[tuple[np.ndarray, np.ndarray]] | None = None,
+) -> bool:
     """Check a candidate free-space segment against every known footprint."""
 
-    for polygon in polygons:
-        if _segment_bbox_may_hit(a, b, polygon) and _segment_enters_polygon(a, b, polygon):
+    segment_min = np.minimum(a, b) - 1e-9
+    segment_max = np.maximum(a, b) + 1e-9
+    for index, polygon in enumerate(polygons):
+        if polygon_bboxes is None:
+            bbox_hit = _segment_bbox_may_hit(a, b, polygon)
+        else:
+            polygon_min, polygon_max = polygon_bboxes[index]
+            bbox_hit = bool(np.all(segment_max >= polygon_min) and np.all(segment_min <= polygon_max))
+        if bbox_hit and _segment_enters_polygon(a, b, polygon):
             return True
     return False
 
@@ -1310,6 +1354,7 @@ def _solve_owr_cd_diffraction(
     footprint_polygons: list[Any] | dict[int, list[np.ndarray]] | None,
     component_labels: np.ndarray | None = None,
     max_corner_depth: int | None = None,
+    local_segment_losses: bool = False,
 ) -> DiffractionSolution:
     """Strict one-way recursive corner diffraction.
 
@@ -1332,10 +1377,22 @@ def _solve_owr_cd_diffraction(
     current = _endpoint_from_tx(height_map_m, tx)
     target = DiffractionEndpoint(float(rx_row), float(rx_col), float(rx_height_m))
     events: list[DiffractionEvent] = []
+    selected_nodes: list[dict[str, Any]] = []
     visited_corners: set[tuple[int, int, int]] = set()
     visited_components: set[int] = set()
     diagnostics: list[dict[str, Any]] = []
     all_polygons = [polygon for polygons in component_to_polygons.values() for polygon in polygons]
+    all_polygon_bboxes = [
+        (np.min(polygon, axis=0), np.max(polygon, axis=0))
+        for polygon in all_polygons
+    ]
+    component_polygon_bboxes = {
+        component_id: [
+            (np.min(polygon, axis=0), np.max(polygon, axis=0))
+            for polygon in polygons
+        ]
+        for component_id, polygons in component_to_polygons.items()
+    }
     all_polygon_edges = _polygon_edge_index(all_polygons)
     first_blocking_component_id: int | None = None
 
@@ -1343,10 +1400,49 @@ def _solve_owr_cd_diffraction(
         return {"row": endpoint.row, "col": endpoint.col, "z_m": endpoint.z_m}
 
     def finish(termination: str, is_los: bool) -> DiffractionSolution:
+        finalized_events = events
+        if local_segment_losses and selected_nodes:
+            # Geometry is searched first.  Only after the complete one-way
+            # corner chain is known do we evaluate UTD on adjacent free-space
+            # segments: Tx-C1-C2, C1-C2-C3, ..., Cn-Rx.
+            finalized_events = []
+            for index, node in enumerate(selected_nodes):
+                local_target = (
+                    selected_nodes[index + 1]["edge"]
+                    if index + 1 < len(selected_nodes)
+                    else target
+                )
+                event = _corner_event(
+                    node["current"],
+                    local_target,
+                    node["polygon"],
+                    node["corner_index"],
+                    node["component_id"],
+                    node["depth"],
+                    resolution_m,
+                    wavelength_m,
+                )
+                finalized_events.append(event)
+                record = node["record"]
+                record.update(
+                    {
+                        "utd_target": endpoint_dict(local_target),
+                        "local_outgoing_distance_px": float(
+                            np.hypot(
+                                local_target.row - event.edge.row,
+                                local_target.col - event.edge.col,
+                            )
+                        ),
+                        "utd_loss_db": event.loss_db,
+                        "incident_direction_rc": event.incident_direction_rc,
+                        "outgoing_direction_rc": event.outgoing_direction_rc,
+                        "wedge_angle_rad": event.wedge_angle_rad,
+                    }
+                )
         return DiffractionSolution(
             mode="owr-cd",
-            loss_db=float(sum(event.loss_db for event in events)),
-            events=events,
+            loss_db=float(sum(event.loss_db for event in finalized_events)),
+            events=finalized_events,
             termination=termination,
             is_los=is_los,
             corner_diagnostics=diagnostics,
@@ -1361,9 +1457,15 @@ def _solve_owr_cd_diffraction(
     for depth in range(iteration_limit):
         current_xy = np.asarray([current.row, current.col], dtype=np.float64)
         target_xy = np.asarray([target.row, target.col], dtype=np.float64)
-        component_id, progress = _first_blocking_polygon(component_to_polygons, current_xy, target_xy)
+        component_id, progress = _first_blocking_polygon(
+            component_to_polygons,
+            current_xy,
+            target_xy,
+            component_polygon_bboxes,
+        )
         if component_id is None:
-            return finish("los" if not events else "rx_visible", not bool(events))
+            has_corner_path = bool(events) or bool(selected_nodes)
+            return finish("rx_visible" if has_corner_path else "los", not has_corner_path)
         if first_blocking_component_id is None:
             first_blocking_component_id = component_id
         if max_corner_depth is not None and depth >= max_corner_depth:
@@ -1382,7 +1484,13 @@ def _solve_owr_cd_diffraction(
             silhouette_indices.update((polygon_index << 16) | index for index in silhouette)
 
         candidate_records: list[dict[str, Any]] = []
-        candidates: list[tuple[tuple[float, float, float, float, float], DiffractionEvent, dict[str, Any]]] = []
+        candidates: list[
+            tuple[
+                tuple[float, float, float, float, float],
+                DiffractionEvent | None,
+                dict[str, Any],
+            ]
+        ] = []
         forward_vector = target_xy - current_xy
         forward_norm_sq = float(np.dot(forward_vector, forward_vector))
         for polygon_index, polygon in enumerate(blocking_polygons):
@@ -1424,7 +1532,7 @@ def _solve_owr_cd_diffraction(
                         record["reject_reason"] = "not_forward_progress"
                     elif _segment_overlaps_any_polygon_edge(current_xy, corner_array, all_polygons, all_polygon_edges):
                         record["reject_reason"] = "incoming_wall_overlap"
-                    elif _segment_hits_any_polygon(current_xy, corner_array, all_polygons):
+                    elif _segment_hits_any_polygon(current_xy, corner_array, all_polygons, all_polygon_bboxes):
                         record["reject_reason"] = "incoming_blocked"
                     elif _segment_overlaps_any_polygon_edge(corner_array, target_xy, all_polygons, all_polygon_edges):
                         record["reject_reason"] = "outgoing_wall_overlap"
@@ -1436,23 +1544,28 @@ def _solve_owr_cd_diffraction(
                         if _polygon_contains_point(probe, polygon):
                             record["reject_reason"] = "outgoing_does_not_leave_blocking_building"
                         else:
-                            event = _corner_event(
-                                current, target, polygon, corner_index, component_id,
-                                depth, resolution_m, wavelength_m,
-                            )
+                            event = None
+                            if not local_segment_losses:
+                                event = _corner_event(
+                                    current, target, polygon, corner_index, component_id,
+                                    depth, resolution_m, wavelength_m,
+                                )
                             turn_angle = _turn_angle(current_xy, corner_array, target_xy)
-                            record.update({
-                                "turn_angle_rad": turn_angle,
-                                "utd_loss_db": event.loss_db,
-                                "incident_direction_rc": event.incident_direction_rc,
-                                "outgoing_direction_rc": event.outgoing_direction_rc,
-                                "wedge_angle_rad": event.wedge_angle_rad,
-                                "accepted": True,
-                            })
+                            record.update({"turn_angle_rad": turn_angle, "accepted": True})
+                            if event is not None:
+                                record.update({
+                                    "utd_loss_db": event.loss_db,
+                                    "incident_direction_rc": event.incident_direction_rc,
+                                    "outgoing_direction_rc": event.outgoing_direction_rc,
+                                    "wedge_angle_rad": event.wedge_angle_rad,
+                                })
+                            score_tail = (
+                                event.loss_db if event is not None else 0.0
+                            )
                             score = (
                                 current_to_corner + corner_to_target,
                                 turn_angle,
-                                event.loss_db,
+                                score_tail,
                                 float(corner[0]),
                                 float(corner[1]),
                             )
@@ -1484,17 +1597,72 @@ def _solve_owr_cd_diffraction(
             "selected_corner": selected_record["corner"],
             "selected_building_id": component_id,
         })
+        selected_corner = selected_record["corner"]
+        selected_endpoint = DiffractionEndpoint(
+            float(selected_corner["row"]),
+            float(selected_corner["col"]),
+            current.z_m,
+        )
         corner_key = (
             component_id,
-            int(round(float(event.edge.row) * 2.0)),
-            int(round(float(event.edge.col) * 2.0)),
+            int(round(selected_endpoint.row * 2.0)),
+            int(round(selected_endpoint.col * 2.0)),
         )
         visited_corners.add(corner_key)
         visited_components.add(component_id)
-        events.append(event)
-        current = event.edge
+        selected_nodes.append(
+            {
+                "current": current,
+                "edge": selected_endpoint,
+                "polygon": blocking_polygons[int(selected_record["polygon_index"])],
+                "corner_index": int(selected_record["corner_index"]),
+                "component_id": component_id,
+                "depth": depth,
+                "record": selected_record,
+            }
+        )
+        if event is not None:
+            events.append(event)
+        current = selected_endpoint
 
     return finish("max_corner_depth" if max_corner_depth is not None else "max_connected_buildings", False)
+
+
+def solve_owr_cd_local_segment_diffraction(
+    height_map_m: np.ndarray,
+    tx: TxRecord,
+    rx_row: int,
+    rx_col: int,
+    rx_height_m: float,
+    resolution_m: float,
+    wavelength_m: float,
+    footprint_polygons: list[Any] | dict[int, list[np.ndarray]] | None,
+    component_labels: np.ndarray | None = None,
+    max_corner_depth: int | None = None,
+) -> DiffractionSolution:
+    """Evaluate OWR-CD UTD on the already selected adjacent-corner chain.
+
+    The legacy PDF-compatible solver evaluates each corner against the final
+    Rx while searching the chain.  This diagnostic/reference entry point keeps
+    the same one-way geometry rules, but defers UTD until the chain is known:
+    ``Tx-C1-C2``, ``C1-C2-C3``, ..., ``Cn-Rx``.  It is intentionally separate
+    from the public mode dispatcher until the comparison has been reviewed.
+    """
+
+    return _solve_owr_cd_diffraction(
+        height_map_m,
+        tx,
+        rx_row,
+        rx_col,
+        rx_height_m,
+        resolution_m,
+        wavelength_m,
+        footprint_polygons,
+        component_labels,
+        max_corner_depth,
+        local_segment_losses=True,
+    )
+
 
 def _solve_single_diffraction(
     height_map_m: np.ndarray,
@@ -1885,7 +2053,7 @@ def compute_physics_maps(
     height_map_m: np.ndarray,
     tx: TxRecord,
     frequency_hz: float,
-    rx_height_m: float,
+    rx_height_m: float | np.ndarray,
     resolution_m: float,
     path_sampling_step_m: float = 1.0,
     speed_of_light_m_per_s: float = 299792458.0,
@@ -1893,6 +2061,7 @@ def compute_physics_maps(
     fspl_db: np.ndarray | None = None,
     footprint_polygons: list[Any] | None = None,
     max_corner_depth: int | None = None,
+    observation_mask: np.ndarray | None = None,
 ) -> PhysicsMaps:
     """计算一个Tx覆盖全图的确定性FSPL与指定diffraction mode结果。
 
@@ -1903,6 +2072,10 @@ def compute_physics_maps(
     静默写成零绕射。fspl_db可传入已计算的FSPL，保证各对比method共享完全相同
     的FSPL而不重复计算。
 
+    ``rx_height_m`` may be a scalar absolute Rx height or a per-pixel absolute
+    height grid.  The latter is required when the dataset defines Rx height
+    relative to a varying terrain surface.
+
     ``resolved_method_map``记录每个像素的``los-fspl``、实际``owr-cd``/
     ``owr-rd``或显式mode；``fallback_to_rd_mask``记录CD到RD的几何回退。
     """
@@ -1910,6 +2083,15 @@ def compute_physics_maps(
     diffraction_mode = validate_diffraction_mode(diffraction_mode)
     resolved_mode = diffraction_mode
     height_map_m = np.asarray(height_map_m, dtype=np.float32)
+    rx_height_array = np.asarray(rx_height_m, dtype=np.float64)
+    if rx_height_array.ndim == 0:
+        rx_height_grid: np.ndarray | None = None
+    elif rx_height_array.shape == height_map_m.shape:
+        rx_height_grid = rx_height_array
+    else:
+        raise ValueError(
+            f"rx_height_m must be scalar or shape {height_map_m.shape}, got {rx_height_array.shape}"
+        )
     if fspl_db is None:
         fspl_db = free_space_path_loss_db(height_map_m, tx, frequency_hz, rx_height_m, resolution_m, speed_of_light_m_per_s)
     else:
@@ -1918,6 +2100,12 @@ def compute_physics_maps(
             raise ValueError(f"fspl_db shape {fspl_db.shape} does not match height_map {height_map_m.shape}")
     wavelength_m = speed_of_light_m_per_s / float(frequency_hz)
     shape = height_map_m.shape
+    if observation_mask is None:
+        observation_mask = np.ones(shape, dtype=bool)
+    else:
+        observation_mask = np.asarray(observation_mask, dtype=bool)
+        if observation_mask.shape != shape:
+            raise ValueError(f"observation_mask shape {observation_mask.shape} does not match height_map {shape}")
     diffraction = np.zeros(shape, dtype=np.float32)
     nu_max = np.full(shape, np.nan, dtype=np.float32)
     dominant_row = np.full(shape, -1, dtype=np.int32)
@@ -1945,13 +2133,18 @@ def compute_physics_maps(
 
     for rx_row in range(shape[0]):
         for rx_col in range(shape[1]):
+            rx_height_at_pixel = (
+                float(rx_height_grid[rx_row, rx_col])
+                if rx_height_grid is not None
+                else float(rx_height_array)
+            )
             root_solution = solve_diffraction(
                 height_map_m,
                 tx,
                 rx_row,
                 rx_col,
                 "single",
-                rx_height_m,
+                rx_height_at_pixel,
                 resolution_m,
                 wavelength_m,
                 path_sampling_step_m,
@@ -1959,9 +2152,18 @@ def compute_physics_maps(
             is_los = bool(root_solution.is_los)
             los_mask[rx_row, rx_col] = is_los
             if is_los:
+                # LOS is always a complete, cheap physical result.  A sparse
+                # Rx mask may limit the expensive NLOS CD/RD solve, but it
+                # must never replace an LOS pixel with an interpolated value.
                 resolved_method_map[rx_row, rx_col] = "los-fspl"
                 if resolved_mode == "owr-cd":
                     cd_validity_mask[rx_row, rx_col] = True
+                continue
+            if not observation_mask[rx_row, rx_col]:
+                # This is an NLOS pixel for which only the diffraction field
+                # is completed from measured/simulated Rx locations later.
+                # It is not a zero-diffraction claim.
+                resolved_method_map[rx_row, rx_col] = "interpolated-rx"
                 continue
 
             if resolved_mode == "none":
@@ -1976,7 +2178,7 @@ def compute_physics_maps(
                     rx_row,
                     rx_col,
                     resolved_mode,
-                    rx_height_m,
+                    rx_height_at_pixel,
                     resolution_m,
                     wavelength_m,
                     path_sampling_step_m,
@@ -2029,4 +2231,5 @@ def compute_physics_maps(
         resolved_method_map=resolved_method_map,
         fallback_to_rd_mask=fallback_to_rd_mask,
         mode=resolved_mode,
+        observation_mask=observation_mask,
     )

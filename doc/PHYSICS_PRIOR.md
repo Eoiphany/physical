@@ -186,6 +186,23 @@ building-component guard and Rx visibility provide the finite geometric stop
 condition. A finite integer is retained only as an explicit synthetic-test or
 debug override.
 
+Image-mask datasets may additionally set
+`physics_prior.sampling_mask: "rx_observation"` or pass
+`--rx-only-physics-prior`. The solver then evaluates diffraction only at the
+dataset's `Rx/{scene_id}.png` mask and writes `physics_prior_observed_db.npy`
+plus `physics_observation_mask.npy`. Pixels outside that mask are marked
+`interpolated-rx` in the solver audit map, then completed by deterministic
+USC-style two-dimensional interpolation. The USC Rx mask is irregular rather
+than a rectangular lattice, so the runner uses piecewise-linear interpolation
+on the observed Rx triangulation (the rectangular four-corner case is the
+bilinear special case), with nearest-sample boundary completion outside the
+convex hull. Crucially, only the NLOS diffraction field is completed: every
+LOS pixel is restored to its exact FSPL value, while NLOS pixels use
+`FSPL + interpolated(CD/RD diffraction)`. These pixels are not evidence of
+zero diffraction.
+The complete finite map is saved as `physics_prior_interpolated_db.npy` and
+can be used directly or as a downstream data-driven model input.
+
 For every recursive interval the implementation rebuilds the interval reference LOS and recomputes
 `h`, 3-D `d1`, 3-D `d2` and `nu`; parent values are never reused. For a recursive child, `d1`
 is the 3-D Euclidean distance from the current child start `A` to `E`, and `d2` is the 3-D

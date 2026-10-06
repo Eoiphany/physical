@@ -83,7 +83,74 @@ def _building_evaluated_prior(
     return np.where(np.asarray(height_map_m) > 0.0, float(building_min_db), physics_prior_db).astype(np.float32)
 
 
-def _save_arrays(output_dir: Path, maps: PhysicsMaps, building_evaluated_prior_db: np.ndarray) -> None:
+def _bilinear_interpolate(
+    values: np.ndarray,
+    sample_mask: np.ndarray,
+) -> np.ndarray:
+    """Fill a sparse Rx map with the USC-described bilinear completion.
+
+    USC documents that the ray-tracing samples are evaluated at a discrete set
+    of Rx locations and that missing pixels are filled with bilinear
+    interpolation.  The released image package does not expose the original
+    preprocessing source or a rectangular sample lattice: USC's Rx mask is an
+    irregular set of road/sample blocks.  Therefore the well-defined 2-D
+    realization here is piecewise-linear interpolation on the sample
+    triangulation, which agrees with bilinear interpolation on a rectangular
+    four-corner cell.  Points outside the convex hull use the nearest real Rx
+    sample as a finite-image boundary rule.  This is a completion step after
+    CD/RD has been evaluated at real Rx samples; it is not part of the
+    diffraction solver and does not use GT or learned parameters.
+    """
+
+    values = np.asarray(values, dtype=np.float32)
+    sample_mask = np.asarray(sample_mask, dtype=bool)
+    if values.shape != sample_mask.shape:
+        raise ValueError(f"values shape {values.shape} does not match sample_mask {sample_mask.shape}")
+    if sample_mask.all():
+        return values.copy()
+    if not np.any(sample_mask):
+        raise ValueError("bilinear interpolation requires at least one Rx sample")
+
+    height, width = values.shape
+    sample_positions = np.argwhere(sample_mask).astype(np.float64)
+    sample_values = values[sample_mask].astype(np.float64)
+    try:
+        import matplotlib.tri as mtri
+
+        triangulation = mtri.Triangulation(sample_positions[:, 1], sample_positions[:, 0])
+        interpolator = mtri.LinearTriInterpolator(triangulation, sample_values)
+        grid_row, grid_col = np.indices((height, width), dtype=np.float64)
+        interpolated = interpolator(grid_col, grid_row)
+        result = interpolated.filled(np.nan) if np.ma.isMaskedArray(interpolated) else np.asarray(interpolated, dtype=np.float64)
+    except (ImportError, RuntimeError, ValueError):
+        # A degenerate synthetic mask (e.g. collinear points) still gets a
+        # deterministic finite completion without changing the solver.
+        result = np.full((height, width), np.nan, dtype=np.float64)
+
+    # Triangulation is undefined outside its convex hull.  Fill only those
+    # boundary pixels by the nearest observed Rx value; never use zero or GT.
+    missing = ~np.isfinite(result)
+    missing_positions = np.argwhere(missing).astype(np.float64)
+    for start in range(0, len(missing_positions), 4096):
+        stop = min(start + 4096, len(missing_positions))
+        delta = missing_positions[start:stop, None, :] - sample_positions[None, :, :]
+        nearest = np.argmin(np.sum(delta * delta, axis=2), axis=1)
+        rows = missing_positions[start:stop, 0].astype(np.int64)
+        cols = missing_positions[start:stop, 1].astype(np.int64)
+        result[rows, cols] = sample_values[nearest]
+
+    # Preserve every direct physics sample exactly, including float32 values.
+    result[sample_mask] = values[sample_mask]
+    return result.astype(np.float32)
+
+
+def _save_arrays(
+    output_dir: Path,
+    maps: PhysicsMaps,
+    building_evaluated_prior_db: np.ndarray,
+    height_map_m: np.ndarray,
+    interpolated_diffraction_loss_db: np.ndarray | None = None,
+) -> None:
     """保存全部用户要求的物理中间量，使用稳定文件名和float32/int32/bool dtype。"""
 
     array_dir = output_dir / "physics_arrays"
@@ -94,6 +161,16 @@ def _save_arrays(output_dir: Path, maps: PhysicsMaps, building_evaluated_prior_d
         "fspl_loss_magnitude_db": -maps.fspl_db,
         "diffraction_loss_db": maps.diffraction_loss_db,
         "diffraction_loss_magnitude_db": -maps.diffraction_loss_db,
+        "diffraction_loss_interpolated_db": (
+            maps.diffraction_loss_db
+            if interpolated_diffraction_loss_db is None
+            else interpolated_diffraction_loss_db
+        ),
+        "diffraction_loss_interpolated_magnitude_db": -(
+            maps.diffraction_loss_db
+            if interpolated_diffraction_loss_db is None
+            else interpolated_diffraction_loss_db
+        ),
         "nu_max": maps.nu_max,
         "dominant_row": maps.dominant_row,
         "dominant_col": maps.dominant_col,
@@ -107,6 +184,17 @@ def _save_arrays(output_dir: Path, maps: PhysicsMaps, building_evaluated_prior_d
         "physics_prior_loss_magnitude_db": -maps.physics_prior_db,
         "physics_prior_evaluation_db": building_evaluated_prior_db,
         "physics_prior_evaluation_loss_magnitude_db": -building_evaluated_prior_db,
+        "physics_observation_mask": (
+            np.ones_like(maps.fspl_db, dtype=bool)
+            if maps.observation_mask is None else maps.observation_mask
+        ),
+        "physics_prior_interpolated_db": building_evaluated_prior_db,
+        "physics_prior_interpolated_loss_magnitude_db": -building_evaluated_prior_db,
+        # Keep these names as compatibility aliases, but they now contain a
+        # complete finite map rather than NaNs outside the Rx mask.
+        "physics_prior_observed_db": building_evaluated_prior_db,
+        "physics_prior_observed_loss_magnitude_db": -building_evaluated_prior_db,
+        "building_interior_mask": (np.asarray(height_map_m) > 0.0),
         "edge_count": maps.edge_count,
         "corner_count": maps.corner_count,
         "unresolved_nlos_mask": maps.unresolved_nlos_mask,
@@ -355,7 +443,7 @@ def render_corner_recursive_debug(
     """Render the OWR-CD Tx→corner chain over building footprints."""
 
     output_stem.parent.mkdir(parents=True, exist_ok=True)
-    fig, ax = plt.subplots(figsize=(8.5, 8.0), constrained_layout=True)
+    fig, ax = plt.subplots(figsize=(10.5, 8.0), constrained_layout=True)
     ax.imshow(height_map_m > 0.0, cmap="Greys", interpolation="nearest", origin="upper", aspect="equal")
     for item in footprint_polygons or []:
         coordinates = item.get("coordinates_xy", []) if isinstance(item, dict) else item
@@ -394,16 +482,29 @@ def render_corner_recursive_debug(
     ax.set_title(f"{dataset_name} OWR-CD: Tx → corner chain → Rx")
     ax.set_xlabel("image col / x")
     ax.set_ylabel("image row")
-    ax.legend(loc="upper right", fontsize=8)
+    handles, labels = ax.get_legend_handles_labels()
+    unique_handles: dict[str, object] = {}
+    for handle, label in zip(handles, labels):
+        if label and label not in unique_handles:
+            unique_handles[label] = handle
+    ax.legend(
+        list(unique_handles.values()),
+        list(unique_handles.keys()),
+        loc="upper left",
+        bbox_to_anchor=(1.02, 1.0),
+        borderaxespad=0.0,
+        fontsize=8,
+        framealpha=0.92,
+    )
     detail = "\n".join(
         f"C{index + 1}: d1={event.d1_m:.2f} m, d2={event.d2_m:.2f} m, "
         f"wedge={event.wedge_angle_rad:.3f} rad, loss={event.loss_db:.2f} dB"
         for index, event in enumerate(solution.events)
     ) or f"termination={solution.termination}"
     detail += f"\naccepted corners={len(solution.events)}; diagnostics={len(getattr(solution, 'corner_diagnostics', []))}"
-    ax.text(0.01, 0.99, detail, transform=ax.transAxes, va="top", fontsize=8, bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.88})
-    fig.savefig(output_stem.with_suffix(".png"), dpi=300)
-    fig.savefig(output_stem.with_suffix(".pdf"))
+    ax.text(0.01, 0.01, detail, transform=ax.transAxes, va="bottom", fontsize=8, bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.88})
+    fig.savefig(output_stem.with_suffix(".png"), dpi=300, bbox_inches="tight")
+    fig.savefig(output_stem.with_suffix(".pdf"), bbox_inches="tight")
     plt.close(fig)
 
 
@@ -485,39 +586,108 @@ def _mode_metrics(
     maps: PhysicsMaps,
     ground_truth_path_loss_db: np.ndarray,
     evaluated_prior_db: np.ndarray,
-) -> dict[str, float]:
-    """计算单mode的runtime之外的diffraction统计和与GT的误差。"""
+    metric_mask: np.ndarray | None = None,
+) -> dict:
+    """计算全图指标；建筑像素已使用 derived evaluation map。"""
 
     error = evaluated_prior_db.astype(np.float64) - ground_truth_path_loss_db.astype(np.float64)
-    los = maps.los_mask
-    nlos = ~los
-    ground_truth_min = float(np.min(ground_truth_path_loss_db))
-    return {
-        "mean_diffraction_loss_db": float(maps.diffraction_loss_db.mean()),
-        "min_diffraction_loss_db": float(maps.diffraction_loss_db.min()),
-        "max_abs_diffraction_loss_db": float(np.max(np.abs(maps.diffraction_loss_db))),
-        "nlos_ratio": float((~maps.los_mask).mean()),
-        "mean_edge_count": float(maps.edge_count.mean()),
-        "max_edge_count": int(maps.edge_count.max()),
-        "mae_vs_ground_truth_db": float(np.mean(np.abs(error))),
-        "rmse_vs_ground_truth_db": float(np.sqrt(np.mean(error**2))),
-        "max_abs_error_vs_ground_truth_db": float(np.max(np.abs(error))),
-        "bias_vs_ground_truth_db": float(np.mean(error)),
+    mask = np.ones_like(maps.los_mask, dtype=bool) if metric_mask is None else np.asarray(metric_mask, dtype=bool)
+    if mask.shape != maps.los_mask.shape or not np.any(mask):
+        raise ValueError("metric_mask must match the map shape and contain at least one pixel")
+    los = maps.los_mask & mask
+    nlos = (~maps.los_mask) & mask
+    ground_truth_min = float(np.min(ground_truth_path_loss_db[mask]))
+    diffraction = maps.diffraction_loss_db[mask]
+    edge_count = maps.edge_count[mask]
+    corner_count = maps.corner_count[mask]
+    cd_validity = maps.cd_validity_mask[mask]
+    unresolved = maps.unresolved_nlos_mask[mask]
+    fallback = maps.fallback_to_rd_mask[mask]
+    resolved = maps.resolved_method_map[mask]
+    metrics = {
+        "metric_scope": "rx_observation" if metric_mask is not None else "full_grid",
+        "metric_pixel_count": int(mask.sum()),
+        "mean_diffraction_loss_db": float(diffraction.mean()),
+        "min_diffraction_loss_db": float(diffraction.min()),
+        "max_abs_diffraction_loss_db": float(np.max(np.abs(diffraction))),
+        "nlos_ratio": float(nlos.mean() / mask.mean()),
+        "mean_edge_count": float(edge_count.mean()),
+        "max_edge_count": int(edge_count.max()),
+        "mae_vs_ground_truth_db": float(np.mean(np.abs(error[mask]))),
+        "rmse_vs_ground_truth_db": float(np.sqrt(np.mean(error[mask] ** 2))),
+        "max_abs_error_vs_ground_truth_db": float(np.max(np.abs(error[mask]))),
+        "bias_vs_ground_truth_db": float(np.mean(error[mask])),
         "los_rmse_vs_ground_truth_db": float(np.sqrt(np.mean(error[los] ** 2))) if np.any(los) else float("nan"),
         "nlos_rmse_vs_ground_truth_db": float(np.sqrt(np.mean(error[nlos] ** 2))) if np.any(nlos) else float("nan"),
-        "prediction_min_db": float(np.min(evaluated_prior_db)),
-        "raw_prediction_min_db": float(np.min(maps.physics_prior_db)),
-        "prediction_below_ground_truth_min_ratio": float(np.mean(evaluated_prior_db < ground_truth_min)),
-        "corner_count_mean": float(np.mean(maps.corner_count)),
-        "corner_count_max": int(np.max(maps.corner_count)),
-        "cd_validity_ratio": float(np.mean(maps.cd_validity_mask)),
-        "cd_validity_nlos_ratio": float(np.mean(maps.cd_validity_mask & nlos)),
-        "unresolved_nlos_ratio": float(np.mean(maps.unresolved_nlos_mask)),
-        "fallback_to_rd_ratio": float(np.mean(maps.fallback_to_rd_mask)),
+        "prediction_min_db": float(np.min(evaluated_prior_db[mask])),
+        "raw_prediction_min_db": float(np.min(maps.physics_prior_db[mask])),
+        "prediction_below_ground_truth_min_ratio": float(np.mean(evaluated_prior_db[mask] < ground_truth_min)),
+        "corner_count_mean": float(corner_count.mean()),
+        "corner_count_max": int(corner_count.max()),
+        "cd_validity_ratio": float(cd_validity.mean()),
+        "cd_validity_nlos_ratio": float(np.mean(cd_validity & (~maps.los_mask[mask]))),
+        "unresolved_nlos_ratio": float(unresolved.mean()),
+        "fallback_to_rd_ratio": float(fallback.mean()),
         "resolved_method_counts": {
-            str(method): int(np.sum(maps.resolved_method_map == method))
-            for method in np.unique(maps.resolved_method_map)
+            str(method): int(np.sum(resolved == method))
+            for method in np.unique(resolved)
         },
+    }
+    return metrics
+
+
+def _rx_observation_metrics(
+    maps: PhysicsMaps,
+    ground_truth_path_loss_db: np.ndarray,
+    evaluated_prior_db: np.ndarray,
+    rx_observation_mask: np.ndarray | None,
+) -> dict:
+    """Evaluate only the measured Rx pixels when a dataset supplies that mask.
+
+    Boston/UCLA/USC store a dense-looking pmap, but their README/data package
+    also provides a finite Rx mask and states that the remaining pmap pixels
+    are interpolated.  These metrics prevent interpolated pixels from being
+    silently reported as independent RF measurements.
+    """
+
+    if rx_observation_mask is None:
+        return {
+            "rx_observation_mask_available": False,
+            "rx_observation_pixel_count": 0,
+            "rx_observation_pixel_ratio": None,
+            "rx_observation_mae_db": None,
+            "rx_observation_rmse_db": None,
+            "rx_observation_bias_db": None,
+            "rx_observation_los_rmse_db": None,
+            "rx_observation_nlos_rmse_db": None,
+        }
+    mask = np.asarray(rx_observation_mask, dtype=bool)
+    if mask.shape != ground_truth_path_loss_db.shape:
+        raise ValueError(f"Rx observation mask shape {mask.shape} does not match GT {ground_truth_path_loss_db.shape}")
+    count = int(mask.sum())
+    if count == 0:
+        return {
+            "rx_observation_mask_available": True,
+            "rx_observation_pixel_count": 0,
+            "rx_observation_pixel_ratio": 0.0,
+            "rx_observation_mae_db": None,
+            "rx_observation_rmse_db": None,
+            "rx_observation_bias_db": None,
+            "rx_observation_los_rmse_db": None,
+            "rx_observation_nlos_rmse_db": None,
+        }
+    error = evaluated_prior_db.astype(np.float64) - ground_truth_path_loss_db.astype(np.float64)
+    sampled_los = mask & maps.los_mask
+    sampled_nlos = mask & ~maps.los_mask
+    return {
+        "rx_observation_mask_available": True,
+        "rx_observation_pixel_count": count,
+        "rx_observation_pixel_ratio": float(mask.mean()),
+        "rx_observation_mae_db": float(np.mean(np.abs(error[mask]))),
+        "rx_observation_rmse_db": float(np.sqrt(np.mean(error[mask] ** 2))),
+        "rx_observation_bias_db": float(np.mean(error[mask])),
+        "rx_observation_los_rmse_db": float(np.sqrt(np.mean(error[sampled_los] ** 2))) if np.any(sampled_los) else None,
+        "rx_observation_nlos_rmse_db": float(np.sqrt(np.mean(error[sampled_nlos] ** 2))) if np.any(sampled_nlos) else None,
     }
 
 
@@ -584,6 +754,11 @@ def main() -> None:
         help="Diffraction solver: none, single, owr-rd, owr-cd, deygout, or auto.",
     )
     parser.add_argument("--compare-all-modes", action="store_true", help="Run none, single, owr-rd, deygout and owr-cd in one shared-geometry comparison.")
+    parser.add_argument(
+        "--rx-only-physics-prior",
+        action="store_true",
+        help="Run diffraction only at the dataset-provided Rx observation mask and save sparse priors for a later data-driven model.",
+    )
     parser.add_argument("--output-dir", default="runs/radiomap3dseer_physics_prior/3.5GHz_1m", help="Output experiment directory.")
     parser.add_argument("--debug-rx", default=None, help="Optional row,col used for every sample's propagation profile; default is max-nu Rx.")
     args = parser.parse_args()
@@ -614,13 +789,19 @@ def main() -> None:
     c_mps = float(config["physics_prior"]["speed_of_light_m_per_s"])
     max_corner_depth_raw = config["physics_prior"].get("max_corner_depth")
     max_corner_depth = None if max_corner_depth_raw is None else int(max_corner_depth_raw)
+    configured_sampling = config.get("physics_prior", {}).get("sampling_mask", "all")
     color_limits = config["visualization"]["fixed_color_limits"]
-    building_min_db = float(config["dataset_labels"]["png_gray_mapping"]["pathgain_db_range"][0])
+    configured_building_min_db = float(config["dataset_labels"]["png_gray_mapping"]["pathgain_db_range"][0])
 
     print(f"[start] scenes={scene_ids} tx_ids={tx_ids} modes={modes} data_root={Path(args.data_root).resolve()}", flush=True)
     print(f"[config] f={frequency_hz/1e9:.3f} GHz, resolution={resolution_m:.3f} m, rx_height={rx_height_m:.3f} m, fonts={chinese_font}/{western_font}", flush=True)
     for scene_id in scene_ids:
         scene = load_scene(args.data_root, scene_id, config)
+        use_rx_only = bool(args.rx_only_physics_prior or configured_sampling == "rx_observation")
+        if use_rx_only and scene.rx_observation_mask is None:
+            raise ValueError(
+                "rx-only physics prior requested, but this scene has no configured Rx observation mask"
+            )
         for tx_id in tx_ids:
             index = int(tx_id)
             if not 0 <= index < len(scene.tx_records):
@@ -633,11 +814,25 @@ def main() -> None:
             ground_truth = load_ground_truth_path_loss_db(args.data_root, scene_id, tx_id, config)
             ground_truth_paper_pl = load_ground_truth_path_gain_db(args.data_root, scene_id, tx_id, config)
             ground_truth_magnitude = load_ground_truth_path_loss_magnitude_db(args.data_root, scene_id, tx_id, config)
+            building_mask = scene.height_map_m > 0.0
+            finite_building_gt = ground_truth_paper_pl[building_mask]
+            finite_building_gt = finite_building_gt[np.isfinite(finite_building_gt)]
+            # The building display/evaluation floor is a label-semantic rule:
+            # use the darkest building pixels in this Tx's GT map.  Do not use
+            # the configured global range merely because it is convenient.
+            building_min_db = (
+                float(np.min(finite_building_gt))
+                if finite_building_gt.size
+                else configured_building_min_db
+            )
             np.save(sample_dir / "ground_truth_pathgain_db.npy", ground_truth_paper_pl)
             np.save(sample_dir / "ground_truth_pathloss_magnitude_db.npy", ground_truth_magnitude)
+            if scene.rx_observation_mask is not None:
+                np.save(sample_dir / "rx_observation_mask.npy", scene.rx_observation_mask)
             auto_method = select_diffraction_method(scene.height_map_m, tx, rx_height_m)
             maps_by_mode: dict[str, PhysicsMaps] = {}
             evaluated_prior_by_mode: dict[str, np.ndarray] = {}
+            display_prior_by_mode: dict[str, np.ndarray] = {}
             mode_records: dict[str, dict] = {}
             for mode in modes:
                 mode_started = time.perf_counter()
@@ -653,16 +848,75 @@ def main() -> None:
                     fspl_db=fspl_db,
                     footprint_polygons=scene.polygons,
                     max_corner_depth=max_corner_depth,
+                    observation_mask=scene.rx_observation_mask if use_rx_only else None,
                 )
                 maps_by_mode[mode] = maps
-                evaluated_prior = _building_evaluated_prior(scene.height_map_m, maps.physics_prior_db, building_min_db)
+                if use_rx_only and scene.rx_observation_mask is not None:
+                    # The sparse mask limits only the expensive NLOS solve.
+                    # Complete the diffraction field, then restore the exact
+                    # FSPL result on every LOS pixel.  Interpolating the full
+                    # prior would incorrectly overwrite LOS with NLOS values.
+                    interpolated_diffraction = _bilinear_interpolate(
+                        maps.diffraction_loss_db,
+                        scene.rx_observation_mask,
+                    )
+                    interpolated_diffraction = np.where(
+                        maps.los_mask,
+                        0.0,
+                        interpolated_diffraction,
+                    ).astype(np.float32)
+                    completed_prior = (fspl_db + interpolated_diffraction).astype(np.float32)
+                else:
+                    interpolated_diffraction = maps.diffraction_loss_db
+                    completed_prior = maps.physics_prior_db
+                open_los = maps.los_mask & ~building_mask
+                if np.any(open_los):
+                    if not np.allclose(completed_prior[open_los], fspl_db[open_los], rtol=0.0, atol=1e-5):
+                        raise AssertionError(
+                            "Open LOS pixels must use FSPL exactly; CD/RD may only contribute on NLoS pixels"
+                        )
+                solver_evaluated_prior = _building_evaluated_prior(
+                    scene.height_map_m,
+                    completed_prior,
+                    building_min_db,
+                )
+                evaluated_prior = solver_evaluated_prior
+                # Keep the building-interior rule after interpolation as an
+                # explicit final constraint, not as a learned correction.
+                evaluated_prior = np.where(
+                    scene.height_map_m > 0.0,
+                    building_min_db,
+                    evaluated_prior,
+                ).astype(np.float32)
+                if np.any(building_mask) and not np.all(evaluated_prior[building_mask] == building_min_db):
+                    raise AssertionError("Building evaluation pixels must equal the current GT building label floor")
                 evaluated_prior_by_mode[mode] = evaluated_prior
+                display_prior_by_mode[mode] = evaluated_prior
                 mode_dir = sample_dir / "modes" / mode if args.compare_all_modes else sample_dir
-                _save_arrays(mode_dir, maps, evaluated_prior)
+                _save_arrays(
+                    mode_dir,
+                    maps,
+                    evaluated_prior,
+                    scene.height_map_m,
+                    interpolated_diffraction,
+                )
                 mode_records[mode] = {
                     "runtime_seconds": time.perf_counter() - mode_started,
-                    **_mode_metrics(maps, ground_truth, evaluated_prior),
+                    **_mode_metrics(
+                        maps,
+                        ground_truth,
+                        evaluated_prior,
+                        None,
+                    ),
+                    **_rx_observation_metrics(
+                        maps,
+                        ground_truth,
+                        evaluated_prior,
+                        scene.rx_observation_mask,
+                    ),
                 }
+                if use_rx_only:
+                    mode_records[mode]["metric_scope"] = "full_grid_after_rx_diffraction_interpolation_with_exact_los_fspl"
                 (mode_dir / "mode_metadata.json").write_text(
                     json.dumps({"mode": mode, **mode_records[mode]}, ensure_ascii=False, indent=2), encoding="utf-8"
                 )
@@ -706,7 +960,7 @@ def main() -> None:
                     ground_truth,
                     fspl_db,
                     maps_by_mode,
-                    evaluated_prior_by_mode,
+                    display_prior_by_mode,
                     tx.x_m,
                     tx_row,
                     color_limits,
@@ -740,7 +994,7 @@ def main() -> None:
                 actual_color_limits = render_comparison(
                     scene.height_map_m,
                     maps,
-                    evaluated_prior_by_mode[modes[0]],
+                    display_prior_by_mode[modes[0]],
                     ground_truth,
                     tx.x_m,
                     tx_row,
@@ -830,8 +1084,39 @@ def main() -> None:
                 "building_interior_evaluation_rule": {
                     "mask": "height_map_m > 0",
                     "replacement_signed_pathgain_db": building_min_db,
+                    "configured_signed_range_min_db": configured_building_min_db,
+                    "source": "minimum finite ground_truth_pathgain_db over current building pixels",
                     "raw_solver_arrays_unchanged": True,
                     "evaluation_array": "physics_prior_evaluation_db.npy",
+                },
+                "los_invariant": {
+                    "rule": "open LOS pixels are exactly FSPL; diffraction is zero there",
+                    "checked": True,
+                    "building_pixels_are_display_only": True,
+                },
+                "rx_observation": {
+                    "mask_available": scene.rx_observation_mask is not None,
+                    "mask_array": "rx_observation_mask.npy" if scene.rx_observation_mask is not None else None,
+                    "pixel_count": int(scene.rx_observation_mask.sum()) if scene.rx_observation_mask is not None else None,
+                    "pixel_ratio": float(scene.rx_observation_mask.mean()) if scene.rx_observation_mask is not None else None,
+                    "ground_truth_note": (
+                        "Full prior keeps exact FSPL on LOS and interpolates only NLOS diffraction; Rx-masked metrics are the direct-observation diagnostic."
+                        if scene.rx_observation_mask is not None else
+                        "No finite Rx observation mask was supplied by this dataset."
+                    ),
+                },
+                "physics_sampling": {
+                    "mode": "rx_observation" if use_rx_only else "full_grid",
+                    "solver_observation_mask": "rx_observation_mask.npy" if use_rx_only else None,
+                    "completion": (
+                        "usc_irregular_rx_piecewise_linear_diffraction_only_then_exact_los_fspl"
+                        if use_rx_only else "none"
+                    ),
+                    "unobserved_pixels_are_zero_diffraction": False,
+                    "downstream_use": (
+                        "physics_prior_interpolated_db.npy is FSPL on LOS and FSPL plus completed CD/RD diffraction on NLOS; it can be used directly or as a data-driven model input."
+                        if use_rx_only else "Dense deterministic prior."
+                    ),
                 },
                 "rx_height_m": rx_height_m,
                 "debug_rx_row_col": list(selected_rx),
@@ -849,6 +1134,7 @@ def main() -> None:
                     "selected_diffraction_max_abs_db": float(np.max(np.abs(maps_by_mode[modes[0]].diffraction_loss_db))),
                     "selected_prior_max_db": float(maps_by_mode[modes[0]].physics_prior_db.max()),
                     "selected_evaluated_prior_min_db": float(evaluated_prior_by_mode[modes[0]].min()),
+                    "ground_truth_building_label_floor_db": building_min_db,
                     "ground_truth_path_loss_min_db": float(ground_truth.min()),
                     "ground_truth_path_loss_max_db": float(ground_truth.max()),
                 },

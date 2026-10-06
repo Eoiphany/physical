@@ -146,12 +146,12 @@ def _normalize(array: np.ndarray, db_min: float, db_max: float) -> np.ndarray:
 def _apply_building_interior_min_pathgain(
     predictions: dict[str, np.ndarray],
     building_mask: np.ndarray,
-    db_min: float,
+    building_floor_db: float,
 ) -> dict[str, np.ndarray]:
-    """将建筑内部Rx像素固定为配置最低signed pathgain；原始物理数组不被覆盖。"""
+    """将建筑内部像素固定为当前GT建筑标签最低值；原始数组不被覆盖。"""
 
     return {
-        mode: np.where(building_mask, db_min, array).astype(np.float64)
+        mode: np.where(building_mask, building_floor_db, array).astype(np.float64)
         for mode, array in predictions.items()
     }
 
@@ -389,7 +389,7 @@ def main() -> None:
     tx_ids = _parse_ids(args.tx_ids)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    db_min, db_max = map(float, config["dataset_labels"]["simulation_pathgain_db_range"])
+    configured_db_min, db_max = map(float, config["dataset_labels"]["simulation_pathgain_db_range"])
     rows: list[dict[str, Any]] = []
     representative: tuple[dict[str, np.ndarray], dict[str, np.ndarray], np.ndarray, np.ndarray, np.ndarray, int, int, str] | None = None
     warnings: list[str] = []
@@ -401,10 +401,17 @@ def main() -> None:
             sample_name = f"scene_{scene_id}_tx_{tx_id}"
             all_mask = np.ones_like(height_map, dtype=bool)
             building_mask = height_map > 0.0
+            finite_building_gt = ground_truth[building_mask]
+            finite_building_gt = finite_building_gt[np.isfinite(finite_building_gt)]
+            building_floor_db = (
+                float(np.min(finite_building_gt))
+                if finite_building_gt.size
+                else configured_db_min
+            )
             predictions = _apply_building_interior_min_pathgain(
                 raw_predictions,
                 building_mask,
-                db_min,
+                building_floor_db,
             )
             nlos_predictions = {
                 mode: predictions["none"] + np.where(~los_masks[mode], predictions[mode] - predictions["none"], 0.0)
@@ -414,9 +421,9 @@ def main() -> None:
                 representative = (predictions, nlos_predictions, ground_truth, los_masks["owr-cd"], height_map, tx_row, tx_col, sample_name)
             for mode in MODES:
                 application_prediction = nlos_predictions[mode]
-                rows.append(_metric_row(application_prediction, ground_truth, all_mask, db_min, db_max, "all", sample_name, METHOD_LABELS[mode]))
+                rows.append(_metric_row(application_prediction, ground_truth, all_mask, configured_db_min, db_max, "all", sample_name, METHOD_LABELS[mode]))
                 nlos_mask = ~los_masks[mode]
-                rows.append(_metric_row(application_prediction, ground_truth, nlos_mask, db_min, db_max, "nlos", sample_name, METHOD_LABELS[mode]))
+                rows.append(_metric_row(application_prediction, ground_truth, nlos_mask, configured_db_min, db_max, "nlos", sample_name, METHOD_LABELS[mode]))
                 if nlos_mask.mean() == 0.0:
                     warnings.append(f"{sample_name}/{mode}: no NLoS pixels")
     if representative is None:
@@ -432,8 +439,8 @@ def main() -> None:
         "application_definitions": {
             "nlos_region": "P_NLoS = FSPL + I_NLoS * L_diff",
         },
-        "building_interior_rule": "height_map_m > 0 pixels are fixed to the configuration minimum signed pathgain",
-        "building_min_signed_pathgain_db": db_min,
+        "building_interior_rule": "height_map_m > 0 pixels are fixed to the minimum finite GT signed pathgain on current building pixels",
+        "building_floor_by_sample_is_gt_derived": True,
         "scope_definitions": {"all": "all pixels", "nlos": "pixels where the method-specific geometry LOS mask is false"},
         "metric_units": {
             "rmse_db": "dB signed PL/pathgain domain",
@@ -443,7 +450,7 @@ def main() -> None:
             "psnr_db": "fixed-range normalized domain",
             "ssim": "full-map only; NLoS masked SSIM is not defined for this report",
         },
-        "fixed_pathgain_range_db": [db_min, db_max],
+        "fixed_pathgain_range_db": [configured_db_min, db_max],
         "aggregation": "macro mean across selected scene/Tx samples; raw rows remain in metrics_summary.csv",
         "fonts": {"chinese": chinese_font, "western": western_font},
         "warnings": warnings,
@@ -462,7 +469,7 @@ def main() -> None:
         tx_row=representative_tx_row,
         tx_col=representative_tx_col,
         aggregate=raw_aggregate,
-        db_min=db_min,
+        db_min=configured_db_min,
         db_max=db_max,
         output_stem=output_dir / "physics_prior_NLoS_comparison",
         figure_title=(
