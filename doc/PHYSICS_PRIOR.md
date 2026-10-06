@@ -169,6 +169,23 @@ frequency, wavelength, path sampling step and piecewise knife-edge function `J(n
 | `owr-cd` | **OWR-CD, One-Way Recursive Corner Diffraction** | footprint corner chain toward Rx | canonical material-independent UTD wedge contributions |
 | `deygout` | standard two-sided Deygout construction | both `A -> E*` and `E* -> B` | sum of selected recursive `J(nu)` contributions |
 
+With `--diffraction-method auto`, LOS pixels use FSPL only. Each NLoS pixel is
+dispatched independently using the configured Tx/Rx/building-height rule, with
+the dominant root blocking roof as the local height reference: low,
+height-similar street links use OWR-CD and other links use OWR-RD. A strict CD
+corner chain that cannot legally reach the Rx is not recorded as zero loss; it
+falls back to OWR-RD on the same geometry. Only a pathological case in which
+the root NLoS profile also yields no rooftop event uses the root single edge as
+an explicitly recorded `single-fallback`. The arrays
+`resolved_method_map.npy` and `fallback_to_rd_mask.npy` make this dispatch
+auditable per pixel.
+
+All checked-in dataset configs use `max_corner_depth: null`. In that setting the
+corner recursion is not limited by an arbitrary corner count; the visited
+building-component guard and Rx visibility provide the finite geometric stop
+condition. A finite integer is retained only as an explicit synthetic-test or
+debug override.
+
 For every recursive interval the implementation rebuilds the interval reference LOS and recomputes
 `h`, 3-D `d1`, 3-D `d2` and `nu`; parent values are never reused. For a recursive child, `d1`
 is the 3-D Euclidean distance from the current child start `A` to `E`, and `d2` is the 3-D

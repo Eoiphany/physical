@@ -95,6 +95,8 @@ def _save_arrays(output_dir: Path, maps: PhysicsMaps) -> None:
         "unresolved_nlos_mask": maps.unresolved_nlos_mask,
         "cd_validity_mask": maps.cd_validity_mask,
         "first_blocking_building_id": maps.first_blocking_building_id,
+        "resolved_method_map": maps.resolved_method_map,
+        "fallback_to_rd_mask": maps.fallback_to_rd_mask,
     }
     for name, array in arrays.items():
         np.save(array_dir / f"{name}.npy", array)
@@ -218,6 +220,8 @@ def _serialize_solution(solution) -> dict:
         "loss_magnitude_db": solution.loss_db,
         "termination": solution.termination,
         "is_los": solution.is_los,
+        "dispatch_method": solution.dispatch_method,
+        "fallback_from": solution.fallback_from,
         "edge_count": len(solution.events),
         "corner_count": sum(event.event_type == "corner" for event in solution.events),
         "corner_diagnostics": solution.corner_diagnostics,
@@ -485,6 +489,11 @@ def _mode_metrics(maps: PhysicsMaps, ground_truth_path_loss_db: np.ndarray) -> d
         "cd_validity_ratio": float(np.mean(maps.cd_validity_mask)),
         "cd_validity_nlos_ratio": float(np.mean(maps.cd_validity_mask & nlos)),
         "unresolved_nlos_ratio": float(np.mean(maps.unresolved_nlos_mask)),
+        "fallback_to_rd_ratio": float(np.mean(maps.fallback_to_rd_mask)),
+        "resolved_method_counts": {
+            str(method): int(np.sum(maps.resolved_method_map == method))
+            for method in np.unique(maps.resolved_method_map)
+        },
     }
 
 
@@ -579,6 +588,8 @@ def main() -> None:
     resolution_m = float(config["scene"]["resolution_m_per_pixel"])
     step_m = float(config["physics_prior"]["path_sampling_step_m"])
     c_mps = float(config["physics_prior"]["speed_of_light_m_per_s"])
+    max_corner_depth_raw = config["physics_prior"].get("max_corner_depth")
+    max_corner_depth = None if max_corner_depth_raw is None else int(max_corner_depth_raw)
     color_limits = config["visualization"]["fixed_color_limits"]
 
     print(f"[start] scenes={scene_ids} tx_ids={tx_ids} modes={modes} data_root={Path(args.data_root).resolve()}", flush=True)
@@ -615,7 +626,7 @@ def main() -> None:
                     diffraction_mode=mode,
                     fspl_db=fspl_db,
                     footprint_polygons=scene.polygons,
-                    max_corner_depth=int(config["physics_prior"].get("max_corner_depth", 3)),
+                    max_corner_depth=max_corner_depth,
                 )
                 maps_by_mode[mode] = maps
                 mode_dir = sample_dir / "modes" / mode if args.compare_all_modes else sample_dir
@@ -644,7 +655,7 @@ def main() -> None:
                     step_m,
                     None,
                     scene.polygons,
-                    int(config["physics_prior"].get("max_corner_depth", 3)),
+                    max_corner_depth,
                 )
                 for mode in (*DIFFRACTION_MODES, "auto")
             }
@@ -748,7 +759,7 @@ def main() -> None:
                     sample_dir / "owr_cd_diagnostics",
                     str(config.get("dataset", "Dataset")),
                 )
-            selected_method = auto_method if diffraction_method == "auto" else maps_by_mode[modes[0]].mode
+            selected_method = "auto-per-nlos-rx" if diffraction_method == "auto" else maps_by_mode[modes[0]].mode
             selected_solution = solutions["auto"] if diffraction_method == "auto" else solutions[selected_method]
             mode_comparisons = _pairwise_mode_metrics(maps_by_mode) if args.compare_all_modes else {}
             (sample_dir / "recursive_debug.json").write_text(
@@ -766,7 +777,12 @@ def main() -> None:
                 "resolved_diffraction_method": selected_method,
                 "compare_all_modes": args.compare_all_modes,
                 "executed_methods": modes,
-                "auto_selected_method": auto_method,
+                "auto_selected_method": "per-nlos-rx",
+                "auto_height_method_hint": auto_method,
+                "resolved_method_counts": {
+                    str(method): int(np.sum(maps_by_mode[modes[0]].resolved_method_map == method))
+                    for method in np.unique(maps_by_mode[modes[0]].resolved_method_map)
+                },
                 "auto_selection_rule": config.get("physics_prior", {}).get("auto_selection_rule"),
                 "tx_xyz_m": [tx.x_m, tx.y_m, tx.z_m],
                 "tx_rooftop_height_m": tx.rooftop_height_m,

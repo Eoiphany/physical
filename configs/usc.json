@@ -57,7 +57,7 @@
     "supported_diffraction_methods": ["none", "single", "owr-rd", "owr-cd", "deygout", "auto"],
     "owr_rd_algorithm_name": "OWR-RD (One-Way Recursive Rooftop Diffraction)",
     "owr_cd_algorithm_name": "OWR-CD (One-Way Recursive Corner Diffraction; canonical UTD wedge)",
-    "max_corner_depth": 3,
+    "max_corner_depth": null,
     "auto_selection_rule": "Use OWR-CD when Tx/Rx heights are close and both are below half the maximum building height; otherwise use OWR-RD.",
     "nu_no_obstacle": "NaN",
     "d1_d2_definition": "3D Euclidean distances using fixed-height proxy and 0.86 m/pixel"

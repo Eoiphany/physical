@@ -14,9 +14,11 @@ single     Single Dominant Knife-Edge
 owr-rd     OWR-RD / One-Way Recursive Rooftop Diffraction
 owr-cd     OWR-CD / One-Way Recursive Corner Diffraction
 deygout   standard two-sided Deygout recursive construction
+auto      per-NLoS dispatch: OWR-CD or OWR-RD with explicit fallback diagnostics
 ```
 
 OWR-RD 不能称为 Deygout。每个递归区间都必须重新计算 reference LOS、`h`、`d1`、`d2` 和 `nu`；OWR-RD 只递归 `E* -> B`，Deygout 同时递归 `A -> E*` 和 `E* -> B`。
+默认 `auto` 先判定每个Rx的root LOS：LOS只使用FSPL；NLoS按局部主阻挡屋顶与Tx/Rx相对高度选择OWR-CD或OWR-RD。OWR-CD不能建立合法corner链时自动回退OWR-RD，并保存 `resolved_method_map.npy` 与 `fallback_to_rd_mask.npy`。配置中的 `max_corner_depth: null` 表示不按corner数量截断，递归由已访问建筑物集合和Rx可见性终止；仅人工测试或诊断时允许设置有限整数上限。
 
 ## Data is external
 

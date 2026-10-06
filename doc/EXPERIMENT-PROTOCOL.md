@@ -74,6 +74,8 @@ python visualize_physics_prior_metrics.py \
 
 该入口只构造`P_NLoS = FSPL + I_NLoS·L_diff`，不再评估直接全区域叠加的旧分支。建筑高度图大于0的像素固定为配置最低signed Pathloss。输出给出P_NLoS全图和共同几何NLoS mask区域的指标。RMSE/MAE保留signed dB域，MSE、NMSE和PSNR按配置固定标签范围归一化，R²按signed dB误差计算，SSIM只报告完整地图；不对不规则NLoS mask人为填充SSIM。
 
+使用默认`auto`时，先对每个Rx做统一root LOS判定。LOS像素严格使用FSPL；只有NLoS像素才运行OWR-CD或OWR-RD。OWR-CD无法形成合法corner到Rx的传播链时自动回退OWR-RD，结果中通过`resolved_method_map.npy`和`fallback_to_rd_mask.npy`记录，禁止把该情况静默记为零绕射。
+
 ## 5. Acceptance checks
 
 每个实验日志必须明确：

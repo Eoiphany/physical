@@ -50,8 +50,8 @@
     "supported_diffraction_methods": ["none", "single", "owr-rd", "owr-cd", "deygout", "auto"],
     "owr_rd_algorithm_name": "OWR-RD (One-Way Recursive Rooftop Diffraction)",
     "owr_cd_algorithm_name": "OWR-CD (One-Way Recursive Corner Diffraction; canonical UTD wedge)",
-    "max_corner_depth": 3,
-    "auto_selection_rule": "Use OWR-CD when Tx/Rx heights are close and both are below half the maximum building height; otherwise use OWR-RD.",
+    "max_corner_depth": null,
+    "auto_selection_rule": "For each NLoS Rx, use the dominant root blocking roof height as local reference: OWR-CD when Tx/Rx heights are close and both are below half that height; otherwise use OWR-RD. If strict OWR-CD cannot build a legal chain to Rx, fall back to OWR-RD, then to the root single edge only for pathological raster geometry.",
     "nu_no_obstacle": "NaN",
     "d1_d2_definition": "3D Euclidean distances from the current interval endpoints A/B to candidate rooftop point E=(x,y,H_i), including vertical offsets; for the root interval A=Tx and B=Rx",
     "recursive_same_building_guard": "Exclude the already selected 8-connected building component from child intervals so one rasterized roof is not counted as multiple knife edges"

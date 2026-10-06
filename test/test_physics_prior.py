@@ -170,6 +170,41 @@ def test_auto_dispatch_uses_height_relationship() -> None:
     assert select_diffraction_method(height, rooftop_tx, 1.5) == "owr-rd"
 
 
+def test_auto_uses_fspl_only_on_los_pixels() -> None:
+    """auto模式的无障碍地图全部是LOS，因此不应产生任何绕射贡献。"""
+
+    height = np.zeros((7, 7), dtype=np.float32)
+    tx = TxRecord(x_m=0.0, y_m=6.0, z_m=1.5)
+    maps = compute_physics_maps(height, tx, 3.5e9, 1.5, 1.0, diffraction_mode="auto")
+    assert np.all(maps.los_mask)
+    assert np.all(maps.resolved_method_map == "los-fspl")
+    assert not np.any(maps.fallback_to_rd_mask)
+    np.testing.assert_allclose(maps.physics_prior_db, maps.fspl_db)
+
+
+def test_auto_falls_back_from_invalid_cd_to_rd_for_nlos() -> None:
+    """严格corner无法穿过同一建筑墙面时，auto必须用RD而不是写零绕射。"""
+
+    height = np.zeros((15, 15), dtype=np.float32)
+    height[5:9, 4:12] = 25.0
+    tx = TxRecord(x_m=1.0, y_m=7.0, z_m=1.5)
+    polygons = [{"coordinates_xy": [[4.0, 5.0], [12.0, 5.0], [12.0, 9.0], [4.0, 9.0]]}]
+    maps = compute_physics_maps(
+        height,
+        tx,
+        3.5e9,
+        1.5,
+        1.0,
+        diffraction_mode="auto",
+        footprint_polygons=polygons,
+    )
+    assert not maps.los_mask[7, 13]
+    assert maps.resolved_method_map[7, 13] == "owr-rd"
+    assert maps.fallback_to_rd_mask[7, 13]
+    assert maps.diffraction_loss_db[7, 13] < 0.0
+    assert not maps.unresolved_nlos_mask[7, 13]
+
+
 def test_owr_cd_rejects_same_building_wall_walk() -> None:
     """验证OWR-CD从真实footprint候选corner生成单向、去重且可推进的递归链。"""
 
@@ -293,6 +328,8 @@ if __name__ == "__main__":
         test_paper_signed_pl_is_negative_of_loss_magnitude,
         test_recursive_modes_do_not_repeat_one_connected_building,
         test_auto_dispatch_uses_height_relationship,
+        test_auto_uses_fspl_only_on_los_pixels,
+        test_auto_falls_back_from_invalid_cd_to_rd_for_nlos,
         test_owr_cd_rejects_same_building_wall_walk,
         test_owr_cd_case_a_los_has_no_diffraction,
         test_owr_cd_case_c_recurses_only_to_next_building,
